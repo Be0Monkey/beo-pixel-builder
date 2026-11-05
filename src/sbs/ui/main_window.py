@@ -40,7 +40,10 @@ from sbs.domain.pixel_edit import PixelEditor, check_color
 from sbs.services.library import LibraryError
 from sbs.services.pixel_io import load_doc, png_bytes, save_layers
 from sbs.ui.animation_dialog import AnimationDialog
+from sbs.services.backgrounds import BACKGROUNDS
+from sbs.ui.export_dialog import ExportDialog
 from sbs.ui.module_dialog import ModuleDialog
+from sbs.ui.preview_dialog import PreviewDialog
 from sbs.ui.repeat_dialog import RepeatDialog
 from sbs.ui.pixel_editor import PixelEditorDialog
 
@@ -123,6 +126,8 @@ class MainWindow(QMainWindow):
                                     triggered=lambda: self.export_dialog(False)))
         file_menu.addAction(QAction("Exporter en PNG a&grandi…", self,
                                     triggered=lambda: self.export_dialog(True)))
+        file_menu.addAction(QAction("Exporter pour &Godot 4…", self, triggered=lambda: self.open_export("godot4")))
+        file_menu.addAction(QAction("Exporter en &JSON…", self, triggered=lambda: self.open_export("json")))
         file_menu.addSeparator()
         file_menu.addAction(QAction("&Quitter", self, shortcut="Ctrl+Q", triggered=self.close))
 
@@ -182,6 +187,11 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.act_snap_grid)
         view_menu.addAction(self.act_snap_edges)
         view_menu.addAction(self.act_snap_anchors)
+        bg_menu = view_menu.addMenu("Fond de l'espace de travail")
+        bg_menu.addAction(QAction("Damier (par défaut)", self, triggered=lambda: self._set_background(None)))
+        for key, (label, top, bottom) in BACKGROUNDS.items():
+            bg_menu.addAction(QAction(label, self, triggered=lambda _=False, k=key: self._set_background(k)))
+        view_menu.addAction(QAction("Aperçu &éclairé (simulation)…", self, shortcut="F8", triggered=self.open_preview))
         size_menu = view_menu.addMenu("Taille de la grille")
         for px in (8, 16, 32, 64):
             size_menu.addAction(QAction(f"{px} px", self, triggered=lambda _=False, v=px: self._set_grid_size(v)))
@@ -337,7 +347,30 @@ class MainWindow(QMainWindow):
         return True
 
     # --- aimantation, grille, groupes ---------------------------------------------------------
+    def _set_background(self, key: str | None) -> None:
+        if key is None:
+            self.canvas.set_background(None)
+        else:
+            _, top, bottom = BACKGROUNDS[key]
+            self.canvas.set_background(tuple((a + b) // 2 for a, b in zip(top, bottom)))
+        self.prefs.set("view.background", key)
+
+    def open_preview(self) -> None:
+        if len(self.scene_model) == 0:
+            self.statusBar().showMessage("La scène est vide : rien à prévisualiser.", 5000)
+            return
+        PreviewDialog(self.canvas_scene, self).exec()
+
+    def open_export(self, kind: str) -> None:
+        if len(self.scene_model) == 0:
+            self.statusBar().showMessage("La scène est vide : rien à exporter.", 5000)
+            return
+        ExportDialog(self.canvas_scene, kind, self.meta.name, self).exec()
+
     def _load_view_prefs(self) -> None:
+        key = self.prefs.get("view.background")
+        if key in BACKGROUNDS:
+            self._set_background(key)
         snap = self.canvas_scene.snap
         snap.grid_size = int(self.prefs.get("snap.grid_size", 32) or 32)
         for act, key in ((self.act_grid, "view.grid"), (self.act_snap_grid, "snap.grid"),

@@ -73,30 +73,12 @@ Ces points sont des décisions de travail : ils restent modifiables, et priment 
 ## Si le dossier original est retrouvé un jour
 Comparer point par point Q17–Q51, puis mettre à jour uniquement les exigences impactées ; préserver le reste du projet et les tests.
 
-## Notes J3a (modules)
-- Pivot et ancrages nommés éditables (F4 : Propriétés du module). Portée au choix : toutes les utilisations (source, annulable) ou sélection seulement (copie de la ressource, origine « local »).
-- Changer le pivot de la source déplace visuellement les sprites (la position d'une instance est celle de son pivot).
-- Bibliothèque v2 (colonne ancrages, migration automatique).
-
-
-## Notes J3b-d (modules, bibliothèque)
-- Aimant ancrages : un ancrage nommé de la sélection se colle sur celui d'un autre module (2 axes), prioritaire sur grille et bords. Seuls les ancrages nommés comptent (pas le pivot).
-- Variantes : clic droit ou Édition > Variante ; position et pivot conservés ; modules sans cette variante ignorés.
-- Bibliothèque v3 : favoris, mots-clés, catégorie modifiable (clic droit sur une miniature) ; filtres favoris et mots-clés exacts.
-- Références manquantes : Édition > Sélectionner les objets à image manquante (ressource absente ou fichier image absent).
-- « Dimensions libres » : non traité, sens à préciser avec l'utilisateur.
-
-
-## Notes J4 (atelier Pixel Art V1)
-- Outils : crayon, gomme, pipette (couleur visible), remplissage (4 voisins, couleur exacte), sélection rectangulaire (suppression, déplacement aux flèches). Calques, palette (persistée), annuler/rétablir par geste.
-- Retour au chantier : toujours une confirmation de portée (cette sélection seulement = copie du module ; toutes les utilisations = source). Annulable dans le chantier.
-- La taille du sprite ne change pas (le pivot et les ancrages en dépendent). Calques gardés dans calques_<variante>.json à côté de l'image, ignorés si l'image a changé.
-- Nouveau sprite : Fichier > Nouveau sprite (module local, pivot bas-centre).
-
-
-## Notes J5 (animation et répétition)
-- Animations : images = modules (+ variante), durée en tops, cadence 1-60, boucle ; stockées dans le projet (format v3, migration auto).
-- Planche : export PNG + .json voisin (pivots alignés dans chaque case) ; import avec case saisie ou lue dans le .json ; un module local par image.
-- Répétition : ligne, grille, tracé (polyligne ou courbe lissée Catmull-Rom), aperçu fantôme, 2000 objets max, une seule annulation.
-- Pas encore : animation jouée sur le canevas, orientation des copies.
-
+## Notes J6 — Prévisualisations et interopérabilité
+- **Éclairage = SIMULATION** (bandeau orange dans l'aperçu), jamais écrite dans les sprites : couleur = base × (ambiante + lumière × max(0, N·L)) + émission. Normales lues depuis `_n` (case « inverser le vert » : Blender est Y-haut), émission depuis `_e`. Les variantes réutilisent les cartes de la base.
+- Ombres portées : silhouette cisaillée/aplatie sous le pivot, dessinées sous tous les sprites (pas par étage).
+- Comparaison avec `kit_village_scene_lumiere.png` : similarité ≈ 0,84 (indicatif seulement : autre taille, autre fond, autre modèle d'éclairage).
+- Fonds : préréglages (ciel, herbe, terre, nuit, gris) ; fond du canevas uni, dégradé seulement dans l'aperçu. Pas d'image de référence importée.
+- Exports isolés dans `sbs/exporters/` : modèle neutre `ExportScene` (sans Qt), protocole `Exporter.plan()`, `run_export` ne lève jamais. Sécurité : marqueur `.sbs_export.json`, refus d'écraser des fichiers non créés par l'app, chemins `..`/absolus refusés, scène vide refusée, écriture atomique.
+- Godot 4 : Node2D par étage et par calque, Sprite2D par objet dans l'ordre de dessin, `centered=false`, `offset=-pivot`, filtre nearest ; masqué → `visible=false` ; verrouillé → `_edit_lock_` ; groupes en métadonnées. Pas d'AnimatedSprite (animations en JSON / spritesheet).
+- Validation réelle : test headless avec Godot 4.7.2 (`SBS_GODOT` pour changer le chemin) comparant positions, ordre, transparence, visibilité, filtre.
+- Format projet inchangé (v3).

@@ -54,6 +54,7 @@ class CanvasView(QGraphicsView):
         self.setAcceptDrops(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._brush = _checker_brush()
+        self._bg_color: QColor | None = None
         self.show_grid = False
         self._zoom_index = DEFAULT_ZOOM_INDEX
         self._panning = False
@@ -98,8 +99,13 @@ class CanvasView(QGraphicsView):
         self.show_grid = visible
         self.viewport().update()
 
+    def set_background(self, rgb: tuple[int, int, int] | None) -> None:
+        """Fond de confort (damier si None). Jamais exporté ni enregistré dans le projet."""
+        self._bg_color = QColor(*rgb) if rgb else None
+        self.viewport().update()
+
     def drawBackground(self, painter: QPainter, rect) -> None:
-        painter.fillRect(rect, self._brush)
+        painter.fillRect(rect, self._bg_color if self._bg_color else self._brush)
         if self.show_grid:
             g = max(1, self.canvas_scene.snap.grid_size)
             painter.setPen(QPen(QColor(0, 0, 0, 60), 0))
