@@ -72,7 +72,7 @@ Animation
 ## 4. Règles de coordonnées / profondeur
 - Définir un espace de **pixels logiques** fixe, indépendant des pixels physiques de l’écran (DPI).
 - Le canevas stocke ses positions en unités de scène ; l’export raster se fait à résolution native ou facteur entier pour conserver le pixel art.
-- Le pivot de profondeur = point de contact au sol du module (par défaut l'`ancrage_px` du kit), personnalisable. **Ordre de tri unique (D-C)** : étage > calque > profondeur auto (Y du pivot) > Z manuel > ID. Aucune autre règle.
+- Le pivot de profondeur = point de contact au sol du module (par défaut l'`ancrage_px` du kit), personnalisable. **Ordre de tri unique (D-C)** : étage > calque > Z manuel (0 par défaut) > profondeur auto (Y du pivot) > ordre d'insertion. Aucune autre règle. (Le Z manuel passe avant la profondeur auto : sinon il ne pourrait pas « forcer » un ordre.)
 - **Valeurs de référence** : 16 px/m, case 32 px, élévation 30°. Lues dans les fiches du kit ; stockées par projet.
 - Définir un ordre déterministe même en cas de valeurs identiques (ID/insertion), afin d’éviter des sprites qui « sautent » d’un rendu à l’autre.
 

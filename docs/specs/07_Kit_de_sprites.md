@@ -63,15 +63,17 @@ Catégories (15) : batiments, clotures, commerce, decorations, details, etages, 
  "elements": [{"m": "angle_rdc_gauche", "x": 0, "y": 0},
               {"m": "mur_rdc_porte_2m", "x": 16, "y": 0}, ...]}
 ```
-- `m` = `id` d'un module ; `x`, `y` = position en pixels. Les `y` négatifs existent (objets posés devant).
-- L'**ordre de la liste** est probablement l'ordre de dessin du kit *(hypothèse à vérifier en comparant avec `assemblages/boulangerie_sprite.png`)*.
-- `variantes` : la recette existe en plusieurs finitions (ex. toit tuile, murs ocre).
+- `m` = `id` d'un module ; `x`, `y` = position en pixels du **pivot** (`ancrage_px`) du module.
+- **Convention vérifiée le 5 novembre 2026** (0 pixel de différence avec `assemblages/boulangerie_sprite.png`) :
+  - `y` est compté **vers le haut** (0 = sol). À l'écran : `y_écran = -y`. Les `y` négatifs sont des objets posés devant.
+  - Le coin haut-gauche du sprite est donc à `(x - ancrage_x, -y - ancrage_y)`.
+  - L'**ordre de dessin est l'ordre de la liste** (le premier est dessiné en dessous).
+  - `variantes` de la recette : pour chaque module, on prend la première variante de cette liste que le module possède (`tuile` puis `ocre`...), sinon le sprite de base.
 - Une recette devient un **module composite** dans l'appli (décision D-E).
 
 ## 6. Points à vérifier au tout début de J1a
-1. L'origine de `x, y` dans les recettes : coin haut-gauche du sprite, ou son ancrage ?
-2. L'ordre de dessin des recettes : liste, ou tri par `y` ?
-3. Le sens exact de `tile` et `mode`.
-4. Comparer chaque recette importée avec son `*_sprite.png` : c'est le test T15.
+1. ~~Origine de `x, y`~~ et ~~ordre de dessin~~ : résolus (voir §5).
+2. Le sens exact de `tile` et `mode`.
+3. Vérifier les 17 autres recettes de la même façon : c'est le test T15.
 
 Ne jamais modifier les fichiers du kit : l'import fait une **copie gérée**.

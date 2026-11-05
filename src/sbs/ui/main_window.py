@@ -14,6 +14,9 @@ from PySide6.QtWidgets import (
 )
 
 from sbs import __version__
+from sbs.canvas.scene import CanvasScene
+from sbs.canvas.view import CanvasView
+from sbs.domain.scene import SceneModel
 from sbs.services.library import Library
 from sbs.services.preferences import Preferences
 from sbs.ui.library_panel import LibraryPanel
@@ -36,7 +39,10 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Sprite Builder Studio")
         self.resize(1400, 850)
 
-        self.setCentralWidget(_placeholder("Canevas\n(jalon J1)"))
+        self.scene_model = SceneModel()
+        self.canvas_scene = CanvasScene(self.scene_model, library)
+        self.canvas = CanvasView(self.canvas_scene)
+        self.setCentralWidget(self.canvas)
         self.docks: dict[str, QDockWidget] = {}
         self.library_panel = LibraryPanel(library)
         self._add_dock("library", "Bibliothèque", Qt.DockWidgetArea.LeftDockWidgetArea,
@@ -46,9 +52,16 @@ class MainWindow(QMainWindow):
         self._add_dock("floors", "Étages / Calques", Qt.DockWidgetArea.RightDockWidgetArea,
                        "Étages et calques\n(jalon J2)")
 
+        self.library_panel.asset_activated.connect(self.canvas.add_asset_at_center)
+        self.pos_label = QLabel()
+        self.statusBar().addPermanentWidget(self.pos_label)
+        self.canvas.mouse_moved.connect(lambda x, y: self._update_status(x, y))
+        self.canvas.zoom_changed.connect(lambda z: self._update_status())
+        self._mouse = (0, 0)
         self._build_menus()
         self._build_toolbar()
         self.statusBar().showMessage("Prêt")
+        self._update_status()
         self._default_state = self.saveState()
         self._default_geometry = self.saveGeometry()
         self._restore_layout()
@@ -67,7 +80,18 @@ class MainWindow(QMainWindow):
         quit_action = QAction("&Quitter", self, shortcut="Ctrl+Q", triggered=self.close)
         file_menu.addAction(quit_action)
 
+        edit_menu = bar.addMenu("&Édition")
+        edit_menu.addAction(QAction("&Supprimer", self, shortcut="Delete",
+                                    triggered=self.canvas_scene.remove_selected))
+
         view_menu = bar.addMenu("&Vue")
+        view_menu.addAction(QAction("Zoom +", self, shortcut="Ctrl++", triggered=self.canvas.zoom_in))
+        view_menu.addAction(QAction("Zoom −", self, shortcut="Ctrl+-", triggered=self.canvas.zoom_out))
+        view_menu.addAction(QAction("Zoom 200 %", self, shortcut="Ctrl+0", triggered=self.canvas.zoom_reset))
+        grid = QAction("Grille (32 px)", self, checkable=True, shortcut="G")
+        grid.toggled.connect(self.canvas.set_grid_visible)
+        view_menu.addAction(grid)
+        view_menu.addSeparator()
         for dock in self.docks.values():
             view_menu.addAction(dock.toggleViewAction())
         view_menu.addSeparator()
@@ -84,6 +108,14 @@ class MainWindow(QMainWindow):
         tb.setMovable(True)
         self.addToolBar(tb)
         tb.addWidget(QLabel("  Outils : à venir (J1)  "))
+
+    def _update_status(self, x: int | None = None, y: int | None = None) -> None:
+        if x is not None:
+            self._mouse = (x, y)
+        self.pos_label.setText(
+            f"X: {self._mouse[0]}  Y: {self._mouse[1]}  |  Zoom: {round(self.canvas.zoom * 100)} %"
+            f"  |  {len(self.scene_model)} objet(s)"
+        )
 
     # --- disposition --------------------------------------------------
     def _restore_layout(self) -> None:

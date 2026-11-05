@@ -21,7 +21,7 @@
 | T12 | Écriture interrompue en autosave | Dernière sauvegarde saine récupérable |
 | T13 | Importer le kit complet | 163 modules, 15 catégories, ancrages = `ancrage_px` des fiches |
 | T14 | Importer les variantes d'un module (ex. `angle_rdc_droit__gres`) | Rattachées au même asset, pas de doublon |
-| T15 | Charger la recette `boulangerie` | 16 éléments, positions identiques au JSON ; rendu = `assemblages/boulangerie_sprite.png` au pixel près |
+| T15 | Charger la recette `boulangerie` | 16 éléments, positions identiques au JSON ; rendu = `assemblages/boulangerie_sprite.png` : 0 pixel de différence (convention : pivot en (x, −y), voir `07` §5) |
 | T16 | Fiche JSON incomplète (ex. sans `depth` ni `pente`) | Valeurs par défaut sûres, pas de plantage |
 | T17 | Groupes imbriqués : 3 niveaux OK, 4e refusé, cycle refusé | Message clair |
 

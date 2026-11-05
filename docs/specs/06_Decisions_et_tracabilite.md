@@ -56,7 +56,7 @@ Ces lignes sont des **questions proposées**, pas des décisions validées :
 |---|---|---|
 | D-A | Grille 3/4 | Valeurs du kit : 16 px/m, case 32 px, élévation 30° (réglable par projet) |
 | D-B | Groupes | Imbriqués, 3 niveaux maximum, cycles interdits |
-| D-C | Ordre d'affichage | Étage > calque > profondeur auto > Z manuel > ID |
+| D-C | Ordre d'affichage | Étage > calque > Z manuel (0 par défaut) > profondeur auto > insertion. *Corrigé le 5 nov. : la première version plaçait le Z manuel après la profondeur auto, ce qui l'empêchait de forcer un ordre.* |
 | D-D | Rotation | Pas de rotation libre ; miroir et échelle entière seulement |
 | D-E | Groupe en module | Module composite (liste d'éléments), pas d'image aplatie |
 | D-F | Export Godot | `z_index` fixes |

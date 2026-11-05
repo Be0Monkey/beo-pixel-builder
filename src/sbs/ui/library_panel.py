@@ -3,7 +3,7 @@
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QSize, Qt, QThread, Signal, Slot
+from PySide6.QtCore import QMimeData, QObject, QSize, Qt, QThread, Signal, Slot
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
@@ -20,10 +20,24 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from sbs.canvas.mime import ASSET_MIME
 from sbs.services.kit_importer import ImportReport, KitError, import_kit
 from sbs.services.library import Library
 
 ASSET_ROLE = Qt.ItemDataRole.UserRole
+
+
+class AssetList(QListWidget):
+    """Liste de miniatures dont les éléments peuvent être glissés vers le canevas."""
+
+    def mimeTypes(self) -> list[str]:
+        return [ASSET_MIME]
+
+    def mimeData(self, items) -> QMimeData:
+        mime = QMimeData()
+        if items:
+            mime.setData(ASSET_MIME, items[0].data(ASSET_ROLE).encode("utf-8"))
+        return mime
 
 
 class ImportWorker(QObject):
@@ -59,7 +73,9 @@ class LibraryPanel(QWidget):
 
         self.search = QLineEdit(placeholderText="Rechercher…", clearButtonEnabled=True)
         self.category = QComboBox()
-        self.list = QListWidget()
+        self.list = AssetList()
+        self.list.setDragEnabled(True)
+        self.list.setDragDropMode(QListView.DragDropMode.DragOnly)
         self.list.setViewMode(QListView.ViewMode.IconMode)
         self.list.setResizeMode(QListView.ResizeMode.Adjust)
         self.list.setMovement(QListView.Movement.Static)

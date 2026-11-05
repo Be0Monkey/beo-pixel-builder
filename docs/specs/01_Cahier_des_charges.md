@@ -29,7 +29,7 @@ Trois types **activables indépendamment** : (1) grille ; (2) bords/boîtes engl
 - Séparer clairement **coordonnées X/Y**, **pivot**, **étage**, **calque**, **ordre Z** et **profondeur calculée** ; ne jamais prétendre déduire parfaitement le volume d’un sprite 2D.
 - Grille facultative : carrée, 3/4 personnalisée et placement libre. La grille 3/4 est une aide visuelle, pas un moteur 3D.
 - **Valeurs de référence (issues du kit Blender, voir `07`)** : 16 px par mètre, case de grille de 32 px (2 m), élévation de caméra 30° (1 m de hauteur = 13,86 px, soit 16 × cos 30°). Ces valeurs sont lues dans les fiches de chaque module et restent réglables par projet.
-- **Règle d'ordre d'affichage (décision D-C)** : étage, puis calque, puis profondeur automatique (Y du pivot au sol), puis Z manuel, puis ID en dernier recours. Un seul ordre, documenté, déterministe.
+- **Règle d'ordre d'affichage (décision D-C, précisée le 5 nov.)** : étage, puis calque, puis **Z manuel** (0 par défaut ; le monter « force devant », le baisser « force derrière »), puis profondeur automatique (Y du pivot au sol), puis ordre d'insertion. Un seul ordre, documenté, déterministe.
 
 ### 3.4 Étages, calques et groupes
 - Chaque bâtiment peut comporter des étages logiques (fondations, RDC, étages supplémentaires, toit) **et** des calques indépendants au sein des étages.
