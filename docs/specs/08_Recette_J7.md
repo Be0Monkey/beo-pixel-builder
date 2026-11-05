@@ -73,4 +73,7 @@ import de 1 000 fichiers (`test_batch_import::test_import_de_1000_fichiers…`, 
 - Une seule fenêtre de l'application à la fois (la récupération automatique suppose un seul processus).
 - L'ergonomie, les échelles d'écran et le rendu réel ne sont pas validés à la main.
 - Une seule scène par projet ; l'aperçu éclairé est une simulation ; pas d'AnimatedSprite à l'export Godot.
-- « Dimensions libres » (J3) toujours à préciser avec l'utilisateur.
+- « Dimensions libres » (J3) : redimensionnement entier et couverture d'une longueur faits ; pas de 9-slice.
+
+## Complément J3 « dimensions libres »
+✅ `test_dimensions` (pixels nets, pivot, ancrages, refus, aller-retour ×4/÷4 identique, couvrir over/within/exact) et `test_dimensions_gui` (remplacer la sélection + annuler, refus sans résidu, dialogues).

@@ -45,6 +45,7 @@ from sbs.ui.export_dialog import ExportDialog
 from sbs.ui.module_dialog import ModuleDialog
 from sbs.ui.preview_dialog import PreviewDialog
 from sbs.ui.repeat_dialog import RepeatDialog
+from sbs.ui.resize_dialog import ResizeDialog
 from sbs.ui.pixel_editor import PixelEditorDialog
 from sbs.ui.session_mixin import SessionMixin
 from sbs.ui.guide_dialog import GuideDialog
@@ -165,6 +166,7 @@ class MainWindow(SessionMixin, QMainWindow):
         edit_menu.addAction(QAction("&Animations…", self, shortcut="F7", triggered=self.open_animations))
         edit_menu.addAction(QAction("&Modifier les pixels…", self, shortcut="F6",
                                     triggered=self.edit_pixels))
+        edit_menu.addAction(QAction("Re&dimensionner…", self, shortcut="F5", triggered=self.open_resize))
         edit_menu.addAction(QAction("&Propriétés du module…", self, shortcut="F4",
                                     triggered=self.edit_module_properties))
         self.variant_menu = edit_menu.addMenu("&Variante")
@@ -519,6 +521,19 @@ class MainWindow(SessionMixin, QMainWindow):
             return False
         self._repeat_dialog = RepeatDialog(self.canvas_scene, uuid, variant, origin, self)
         self._repeat_dialog.show()  # non bloquant : l'aperçu reste visible sur le canevas
+        return True
+
+    def open_resize(self) -> bool:
+        sel = self.canvas_scene.selection_in_model_order()
+        uuid = sel[0].asset_uuid if sel else self.library_panel.current_asset_uuid()
+        if not uuid or self.library.get(uuid) is None:
+            self.statusBar().showMessage("Sélectionne un objet ou un module de la bibliothèque à redimensionner.", 5000)
+            return False
+        dlg = ResizeDialog(self.canvas_scene, uuid, bool(sel), self)
+        if dlg.exec():
+            self.library_panel.reload_categories()
+            self.library_panel.refresh()
+            self.statusBar().showMessage(dlg.result_text, 6000)
         return True
 
     def open_animations(self) -> None:

@@ -143,3 +143,26 @@ class DetachAndReplaceImage(Command):
 
     def affected_ids(self) -> list[str]:
         return self._ids
+
+
+class SwapAssets(Command):
+    """Remplace le module (et la variante) d'objets déjà placés ; position (pivot) inchangée."""
+
+    def __init__(self, changes: dict[str, tuple[tuple[str, str | None], tuple[str, str | None]]],
+                 name: str = "Remplacer le module"):
+        """changes : id -> ((ancien module, ancienne variante), (nouveau module, nouvelle variante))."""
+        self.name = name
+        self.changes = dict(changes)
+
+    def do(self, model) -> None:
+        for i, (_, (uuid, variant)) in self.changes.items():
+            model.set_asset(i, uuid)
+            model.set_variant(i, variant)
+
+    def undo(self, model) -> None:
+        for i, ((uuid, variant), _) in self.changes.items():
+            model.set_asset(i, uuid)
+            model.set_variant(i, variant)
+
+    def affected_ids(self) -> list[str]:
+        return list(self.changes)

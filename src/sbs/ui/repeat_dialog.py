@@ -56,6 +56,7 @@ class RepeatDialog(QDialog):
         self.mode.addItem("En ligne", "line")
         self.mode.addItem("En grille", "grid")
         self.mode.addItem("Le long d'un tracé", "path")
+        self.mode.addItem("Couvrir une longueur", "cover")
         self.ox, self.oy = _spin(value=origin[0]), _spin(value=origin[1])
         self.count = _spin(1, R.MAX_COUNT, 5)
         self.sx, self.sy = _spin(value=32), _spin(value=0)
@@ -68,6 +69,16 @@ class RepeatDialog(QDialog):
         self.by.addItem("Espacement (px)", "spacing")
         self.by.addItem("Nombre d'objets", "count")
         self.amount = _spin(1, R.MAX_COUNT, 16)
+        self.length = _spin(1, 100000, 128)
+        self.axis = QComboBox()
+        self.axis.addItem("Horizontal (largeur)", "h")
+        self.axis.addItem("Vertical (hauteur)", "v")
+        self.piece = _spin(1, 100000, max(1, asset.width) if asset else 16)
+        self.fit = QComboBox()
+        self.fit.addItem("Tout couvrir (la dernière dépasse)", "over")
+        self.fit.addItem("Pièces entières seulement (un vide possible)", "within")
+        self.fit.addItem("Exact (léger chevauchement, jamais de vide)", "exact")
+        self._asset_size = (asset.width, asset.height) if asset else (16, 16)
         self.group = QCheckBox("Grouper le résultat")
         self.info = QLabel("")
         use_sel = QPushButton("Points = objets sélectionnés")
@@ -83,6 +94,8 @@ class RepeatDialog(QDialog):
             "origin": [("Départ X", self.ox), ("Départ Y", self.oy)],
             "line": [("Nombre", self.count), ("Pas X", self.sx), ("Pas Y", self.sy)],
             "grid": [("Colonnes", self.cols), ("Lignes", self.rows)],
+            "cover": [("Longueur à couvrir (px)", self.length), ("Sens", self.axis),
+                      ("Largeur/hauteur d'une pièce (px)", self.piece), ("Ajustement", self.fit)],
             "path": [("Points du tracé", self.points), ("", self.smooth), ("Répartir par", self.by),
                      ("Valeur", self.amount)],
         }
@@ -104,12 +117,15 @@ class RepeatDialog(QDialog):
         row.addWidget(close)
         lay.addLayout(row)
 
-        for w in (self.ox, self.oy, self.count, self.sx, self.sy, self.cols, self.rows, self.amount):
+        for w in (self.ox, self.oy, self.count, self.sx, self.sy, self.cols, self.rows, self.amount,
+                  self.length, self.piece):
             w.valueChanged.connect(self.update_preview)
         self.points.textChanged.connect(self.update_preview)
         self.smooth.toggled.connect(self.update_preview)
         self.mode.currentIndexChanged.connect(self._mode_changed)
         self.by.currentIndexChanged.connect(self.update_preview)
+        self.fit.currentIndexChanged.connect(self.update_preview)
+        self.axis.currentIndexChanged.connect(self._axis_changed)
         self._mode_changed()
 
     # --- calcul --------------------------------------------------------------------------------------
@@ -120,6 +136,9 @@ class RepeatDialog(QDialog):
             return R.line(origin, self.count.value(), step)
         if mode == "grid":
             return R.grid(origin, self.cols.value(), self.rows.value(), step)
+        if mode == "cover":
+            return R.cover(origin, self.length.value(), self.piece.value(),
+                           self.axis.currentData() == "h", self.fit.currentData())
         pts = parse_points(self.points.toPlainText())
         if self.by.currentData() == "spacing":
             return R.path(pts, self.smooth.isChecked(), spacing=self.amount.value())
@@ -127,7 +146,8 @@ class RepeatDialog(QDialog):
 
     def _mode_changed(self) -> None:
         mode = self.mode.currentData()
-        show = {"origin": mode != "path", "line": mode == "line", "grid": mode == "grid", "path": mode == "path"}
+        show = {"origin": mode != "path", "line": mode == "line", "grid": mode == "grid", "path": mode == "path",
+                "cover": mode == "cover"}
         shown = set()
         for key, rows in self._rows.items():
             if show[key]:
@@ -139,6 +159,11 @@ class RepeatDialog(QDialog):
                 w.setVisible(vis)
         self.update_preview()
 
+    def _axis_changed(self) -> None:
+        """Propose la largeur (sens horizontal) ou la hauteur (sens vertical) du module comme taille de pièce."""
+        self.piece.setValue(max(1, self._asset_size[0] if self.axis.currentData() == "h" else self._asset_size[1]))
+        self.update_preview()
+
     def update_preview(self) -> None:
         try:
             pos = self.positions()
@@ -148,7 +173,11 @@ class RepeatDialog(QDialog):
             return
         n = self.scene.show_preview(self.asset_uuid, self.variant, pos)
         extra = "" if n == len(pos) else f" (aperçu limité à {n})"
-        self.info.setText(f"{len(pos)} objet(s){extra}")
+        cover = ""
+        if self.mode.currentData() == "cover":
+            reach = self.length.value() if self.fit.currentData() == "exact" else len(pos) * self.piece.value()
+            cover = f" — {reach} px couverts sur {self.length.value()}"
+        self.info.setText(f"{len(pos)} objet(s){extra}{cover}")
 
     def points_from_selection(self) -> None:
         pts = [(i.x, i.y) for i in self.scene.selection_in_model_order()]

@@ -91,3 +91,9 @@ Comparer point par point Q17–Q51, puis mettre à jour uniquement les exigences
 - **Performance** : mesures dans `docs/Performances.md` ; 5 goulots corrigés (requêtes SQLite par objet, images rouvertes, O(n²) à la suppression/annulation). Cache d'images borné à 256 Mo.
 - **Paquet** : PyInstaller (dossier) avec deux exécutables (fenêtre / console), `--selftest` et `--version`, scripts `packaging/build_windows.ps1` et `install_test.ps1`. PyInstaller installé hors du Python de l'utilisateur (`pip --target`). Non signé.
 - Recette complète : `08_Recette_J7.md`.
+
+## Notes J3 « dimensions libres » (précisé avec l'utilisateur : redimensionner + couvrir une largeur)
+- **Redimensionner** (`services/resize.py`, F5) : facteurs entiers uniquement (×2…×8, ÷2…÷4), voisin le plus proche → aucune couleur nouvelle, pixels nets. Réduction refusée si la taille n'est pas divisible. Résultat = NOUVEAU module « local » (l'original n'est jamais modifié, pas de changement du format projet : une instance reste « module + position »). Pivot/ancrages recalculés (centre du bloc ; le dernier pixel et le bord restent au bord) ; mots-clés repris ; variantes et cartes `_n`/`_e` non reprises. Maximum 4096 px.
+- **Remplacer la sélection** : une seule commande annulable (`SwapAssets`), pivot inchangé ; un module source utilisé N fois ne crée qu'UN module redimensionné. Les modules créés restent dans la bibliothèque après annulation.
+- **Couvrir une longueur** (`domain/repeat.cover`, mode du dialogue Répéter) : « over » / « within » / « exact » ; origine = pivot de la première pièce ; la taille de pièce est une valeur saisie (largeur ou hauteur du module proposée).
+- Non fait (hors choix de l'utilisateur) : étirement 9-slice, mise à l'échelle par instance sans créer de module.

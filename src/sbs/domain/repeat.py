@@ -29,6 +29,26 @@ def grid(origin: Point, cols: int, rows: int, step: Point) -> list[Point]:
     return [(origin[0] + c * step[0], origin[1] + r * step[1]) for r in range(rows) for c in range(cols)]
 
 
+def cover(origin: Point, length: int, piece: int, horizontal: bool = True, fit: str = "over") -> list[Point]:
+    """Pièces alignées pour couvrir une longueur (largeur si horizontal, hauteur sinon).
+    `origin` = pivot de la première pièce ; `piece` = largeur (ou hauteur) d'une pièce, en pixels.
+    - « over »   : assez de pièces pour tout couvrir, la dernière dépasse ;
+    - « within » : seulement des pièces entières dans la longueur (un vide peut rester) ;
+    - « exact »  : mêmes pièces que « over » mais réparties pour que la dernière finisse pile
+                   à la longueur (léger chevauchement, jamais de vide)."""
+    length, piece = _int("longueur", length, 1, 10**6), _int("pièce", piece, 1, 10**6)
+    if fit not in ("over", "within", "exact"):
+        raise ValueError("ajustement inconnu : over, within ou exact")
+    n = max(1, length // piece) if fit == "within" else -(-length // piece)
+    _check_count(n)
+    if fit == "exact" and n > 1:
+        # si la longueur est plus courte que la pièce, n vaut 1 ; sinon n >= 2 et length >= piece
+        offsets = [round(i * (length - piece) / (n - 1)) for i in range(n)]
+    else:
+        offsets = [i * piece for i in range(n)]
+    return [(origin[0] + o, origin[1]) if horizontal else (origin[0], origin[1] + o) for o in offsets]
+
+
 def _catmull(p0, p1, p2, p3, t: float) -> tuple[float, float]:
     t2, t3 = t * t, t * t * t
     return tuple(  # type: ignore[return-value]

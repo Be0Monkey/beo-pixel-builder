@@ -28,6 +28,13 @@ Sprite Builder Studio est un atelier **local** (rien n'est envoyé sur Internet,
 - **Étages et calques** (panneau de droite) : masquer, verrouiller, réordonner, dupliquer un étage.
 - **Groupes** : `Ctrl G` groupe, `Ctrl Shift G` dégroupe (3 niveaux maximum). Double-clic pour entrer dans un groupe.
 - **Répéter…** (`Ctrl R`) : une clôture en ligne, en grille ou le long d'un tracé ; chaque élément reste modifiable.
+- **Redimensionner…** (`F5`) : agrandit (×2 à ×8) ou réduit (÷2 à ÷4) un module **avec des pixels toujours nets**
+  (facteurs entiers). Un **nouveau module** est créé ; l'original n'est pas modifié. Coche « Remplacer les objets
+  sélectionnés » pour les mettre à jour d'un coup (même position, annulable avec `Ctrl Z`). Réduire exige une taille
+  divisible par le facteur (sinon l'image serait déformée). Les variantes ne sont pas reprises.
+- **Couvrir une longueur** : dans **Répéter…**, choisis « Couvrir une longueur » : indique la largeur (ou hauteur) à
+  remplir et la taille d'une pièce (proposée d'après le module). « Tout couvrir » dépasse un peu à la fin,
+  « Pièces entières » peut laisser un vide, « Exact » finit pile à la longueur avec un léger chevauchement.
 - **Propriétés du module…** (`F4`) : pivot, ancrages, favoris, mots-clés. Tu peux modifier la source
   (toutes les occurrences changent) ou seulement une copie locale.
 
@@ -74,7 +81,7 @@ remplace pas un rendu Blender.
 | Grouper / Dégrouper | Ctrl G / Ctrl Shift G |
 | Grille | G |
 | Zoom + / − / 200 % | Ctrl + / Ctrl − / Ctrl 0 |
-| Pixels / Animations / Propriétés / Aperçu | F6 / F7 / F4 / F8 |
+| Pixels / Animations / Propriétés / Aperçu / Redimensionner | F6 / F7 / F4 / F8 / F5 |
 | Guide / Options | F1 / Ctrl , |
 
 ## 10. En cas de problème

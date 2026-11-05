@@ -14,6 +14,7 @@ from sbs.commands.assets import (
     EditSourceGeometry,
     ReplaceImage,
     SetVariant,
+    SwapAssets,
 )
 from sbs.commands.history import History
 from sbs.commands.instances import Macro, MoveInstances, RemoveInstances, SetZ
@@ -29,6 +30,7 @@ from sbs.domain.repeat import MAX_COUNT
 from sbs.domain.scene import Group, Instance, SceneModel, validate_grouping
 from sbs.domain.snapping import SnapResult, SnapSettings, compute_snap
 from sbs.services.clipboard_codec import decode_instances, encode_instances
+from sbs.services import resize as RZ
 from sbs.services.library import Library, LibraryError
 
 SCENE_HALF = 4096
@@ -341,6 +343,30 @@ class CanvasScene(QGraphicsScene):
         if changes:
             self.history.execute(SetVariant(changes, "Changer de variante"))
         return len(changes)
+
+    def create_resized_module(self, asset_uuid: str, mode: str, k: int):
+        """Nouveau module redimensionné dans la bibliothèque (rien n'est placé). Lève ValueError."""
+        return RZ.create_resized(self.library, asset_uuid, mode, k)
+
+    def resize_selected(self, mode: str, k: int) -> tuple[int, int]:
+        """Remplace les objets sélectionnés par une version redimensionnée de leur module (pixels nets,
+        pivot au même endroit). Une seule action annulable. Renvoie (objets remplacés, modules créés).
+        Tout ou rien : en cas d'erreur, aucun module n'est laissé et rien ne change. Lève ValueError."""
+        sel = self.selection_in_model_order()
+        if not sel:
+            raise ValueError("Sélectionne d'abord un ou plusieurs objets.")
+        created: dict[str, str] = {}
+        try:
+            for inst in sel:
+                if inst.asset_uuid not in created:
+                    created[inst.asset_uuid] = RZ.create_resized(self.library, inst.asset_uuid, mode, k).uuid
+        except ValueError:
+            for uuid in created.values():
+                self.library.delete_asset(uuid)
+            raise
+        changes = {i.id: ((i.asset_uuid, i.variant), (created[i.asset_uuid], None)) for i in sel}
+        self.history.execute(SwapAssets(changes, f"Redimensionner {RZ.label(mode, k)}"))
+        return len(sel), len(created)
 
     def missing_instances(self) -> list[tuple[str, str]]:
         """Objets dont la ressource ou l'image manque : [(id, raison)]."""
