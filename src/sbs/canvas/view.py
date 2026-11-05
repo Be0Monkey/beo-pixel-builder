@@ -1,10 +1,10 @@
-"""Vue du canevas : damier, zoom net, déplacement de la vue, sélection, dépôt depuis la bibliothèque."""
+"""Vue du canevas : damier, zoom net, déplacement de la vue, sélection, glisser avec aimantation,
+guides d'alignement, groupes, dépôt depuis la bibliothèque."""
 
 import math
 
-from PySide6.QtCore import QPointF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPixmap
-from PySide6.QtGui import QAction
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QAction, QBrush, QColor, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QGraphicsView, QMenu
 
 from sbs.canvas.mime import ASSET_MIME
@@ -13,7 +13,6 @@ from sbs.canvas.scene import CanvasScene
 ZOOM_LEVELS = [0.25, 0.5, 1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0, 16.0]
 DEFAULT_ZOOM_INDEX = 3  # 200 %
 CHECKER = 8  # px de scène par case du damier
-GRID = 32  # case de grille de référence du kit (décision D-A)
 
 
 def _checker_brush() -> QBrush:
@@ -25,6 +24,17 @@ def _checker_brush() -> QBrush:
     p.fillRect(CHECKER, CHECKER, CHECKER, CHECKER, dark)
     p.end()
     return QBrush(pm)
+
+
+class _Drag:
+    """État d'un glissement d'objets à la souris."""
+
+    def __init__(self, press: QPointF, starts: dict[str, QPointF], boxes: list[tuple[int, int, int, int]],
+                 primary_pivot: tuple[int, int]):
+        self.press = press
+        self.starts = starts
+        self.boxes = boxes
+        self.primary_pivot = primary_pivot
 
 
 class CanvasView(QGraphicsView):
@@ -47,6 +57,7 @@ class CanvasView(QGraphicsView):
         self._zoom_index = DEFAULT_ZOOM_INDEX
         self._panning = False
         self._last_pan = None
+        self._drag: _Drag | None = None
         self.scale(self.zoom, self.zoom)
         self.centerOn(0, 0)
 
@@ -89,20 +100,34 @@ class CanvasView(QGraphicsView):
     def drawBackground(self, painter: QPainter, rect) -> None:
         painter.fillRect(rect, self._brush)
         if self.show_grid:
+            g = max(1, self.canvas_scene.snap.grid_size)
             painter.setPen(QPen(QColor(0, 0, 0, 60), 0))
-            x = math.floor(rect.left() / GRID) * GRID
+            x = math.floor(rect.left() / g) * g
             while x <= rect.right():
                 painter.drawLine(QPointF(x, rect.top()), QPointF(x, rect.bottom()))
-                x += GRID
-            y = math.floor(rect.top() / GRID) * GRID
+                x += g
+            y = math.floor(rect.top() / g) * g
             while y <= rect.bottom():
                 painter.drawLine(QPointF(rect.left(), y), QPointF(rect.right(), y))
-                y += GRID
+                y += g
         painter.setPen(QPen(QColor(220, 60, 60, 160), 0))  # repères de l'origine
         painter.drawLine(QPointF(rect.left(), 0), QPointF(rect.right(), 0))
         painter.drawLine(QPointF(0, rect.top()), QPointF(0, rect.bottom()))
 
-    # --- souris : déplacement de la vue (bouton du milieu), sélection, déplacement ------
+    def drawForeground(self, painter: QPainter, rect) -> None:
+        if not self.canvas_scene.guides:
+            return
+        painter.setPen(QPen(QColor(255, 0, 200, 220), 0, Qt.PenStyle.DashLine))  # guides d'alignement
+        for kind, pos in self.canvas_scene.guides:
+            if kind == "v":
+                painter.drawLine(QPointF(pos, rect.top()), QPointF(pos, rect.bottom()))
+            else:
+                painter.drawLine(QPointF(rect.left(), pos), QPointF(rect.right(), pos))
+
+    def visible_scene_rect(self) -> QRectF:
+        return self.mapToScene(self.viewport().rect()).boundingRect()
+
+    # --- souris -------------------------------------------------------------------
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.MiddleButton:
             self._panning = True
@@ -110,7 +135,34 @@ class CanvasView(QGraphicsView):
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
             return
+        if event.button() == Qt.MouseButton.LeftButton:
+            pos = self.mapToScene(event.position().toPoint())
+            item = self.canvas_scene.item_at(pos)
+            if item is not None:
+                if self._begin_drag(item, pos, event.modifiers()):
+                    event.accept()
+                    return
+                event.accept()  # Maj+clic qui désélectionne : pas de glissement
+                return
         super().mousePressEvent(event)
+
+    def _begin_drag(self, item, pos: QPointF, mods) -> bool:
+        sc = self.canvas_scene
+        if mods & Qt.KeyboardModifier.ShiftModifier:  # Maj : ajouter/retirer de la sélection
+            if item.isSelected():
+                for i in sc.unit_ids(item.inst_id):
+                    sc.items_by_id[i].setSelected(False)
+                return False
+            sc.select_unit_of(item.inst_id, add=True)
+        elif not item.isSelected():
+            sc.select_unit_of(item.inst_id)
+        primary_pivot = item.pivot_position()
+        if mods & Qt.KeyboardModifier.ControlModifier:  # Ctrl + glisser : dupliquer puis déplacer
+            sc.duplicate_selected(0)
+        chosen = [sc.items_by_id[i] for i in sc.selected_ids()]
+        self._drag = _Drag(pos, {it.inst_id: QPointF(it.pos()) for it in chosen},
+                           [it.box() for it in chosen], primary_pivot)
+        return True
 
     def mouseMoveEvent(self, event) -> None:
         p = self.mapToScene(event.position().toPoint())
@@ -122,7 +174,26 @@ class CanvasView(QGraphicsView):
             self.verticalScrollBar().setValue(self.verticalScrollBar().value() - round(d.y()))
             event.accept()
             return
+        if self._drag is not None:
+            self._drag_to(p, bool(event.modifiers() & Qt.KeyboardModifier.AltModifier))
+            event.accept()
+            return
         super().mouseMoveEvent(event)
+
+    def _drag_to(self, p: QPointF, no_snap: bool) -> None:
+        d, sc = self._drag, self.canvas_scene
+        dx, dy = round(p.x() - d.press.x()), round(p.y() - d.press.y())
+        sx = sy = 0
+        sc.guides = []
+        if not no_snap:  # Alt : aimantation coupée temporairement
+            res = sc.snap_delta(d.boxes, d.primary_pivot, dx, dy, self.zoom,
+                                self.visible_scene_rect(), set(d.starts))
+            sx, sy, sc.guides = res.dx, res.dy, res.guides
+        for inst_id, start in d.starts.items():
+            item = sc.items_by_id.get(inst_id)
+            if item is not None:
+                item.setPos(start.x() + dx + sx, start.y() + dy + sy)
+        self.viewport().update()
 
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.MiddleButton and self._panning:
@@ -130,10 +201,27 @@ class CanvasView(QGraphicsView):
             self.unsetCursor()
             event.accept()
             return
+        if self._drag is not None and event.button() == Qt.MouseButton.LeftButton:
+            self._drag = None
+            self.canvas_scene.guides = []
+            self.canvas_scene.commit_positions()  # un geste = une commande annulable
+            self.viewport().update()
+            event.accept()
+            return
         super().mouseReleaseEvent(event)
-        self.canvas_scene.commit_positions()  # un geste = une mise à jour du modèle
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.canvas_scene.expand_selection_to_groups()  # rectangle de sélection
 
-    # --- clavier : déplacement précis ---------------------------------------------------
+    def mouseDoubleClickEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            pos = self.mapToScene(event.position().toPoint())
+            if not self.canvas_scene.enter_group_at(pos) and self.canvas_scene.item_at(pos) is None:
+                self.canvas_scene.exit_group()  # double-clic dans le vide : on sort du groupe
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    # --- clavier : déplacement précis (jamais aimanté) ---------------------------------
     def keyPressEvent(self, event) -> None:
         step = 8 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else 1
         moves = {
@@ -145,29 +233,34 @@ class CanvasView(QGraphicsView):
             event.accept()
             return
         if event.key() == Qt.Key.Key_Escape:
-            self.canvas_scene.clearSelection()
+            if self.canvas_scene.selected_ids():
+                self.canvas_scene.clearSelection()
+            else:
+                self.canvas_scene.exit_group()
             event.accept()
             return
         super().keyPressEvent(event)
 
-    # --- menu contextuel (clic droit) -------------------------------------------------------
+    # --- menu contextuel (clic droit) -----------------------------------------------------
     def contextMenuEvent(self, event) -> None:
-        item = self.itemAt(event.pos())
-        if item is not None and not item.isSelected():
-            self.canvas_scene.clearSelection()
-            item.setSelected(True)
-        if not self.canvas_scene.selected_ids():
-            return
         sc = self.canvas_scene
+        item = sc.item_at(self.mapToScene(event.pos()))
+        if item is not None and not item.isSelected():
+            sc.select_unit_of(item.inst_id)
+        if not sc.selected_ids():
+            return
         menu = QMenu(self)
         menu.addAction(QAction("Mettre devant", menu, triggered=lambda: sc.shift_z_selected(1)))
         menu.addAction(QAction("Mettre derrière", menu, triggered=lambda: sc.shift_z_selected(-1)))
         menu.addAction(QAction("Ordre automatique", menu, triggered=sc.reset_z_selected))
         menu.addSeparator()
+        menu.addAction(QAction("Grouper", menu, triggered=lambda: sc.group_selected()))
+        menu.addAction(QAction("Dégrouper", menu, triggered=sc.ungroup_selected))
+        menu.addSeparator()
         menu.addAction(QAction("Supprimer", menu, triggered=sc.remove_selected))
         menu.exec(event.globalPos())
 
-    # --- ajout de modules -----------------------------------------------------------------
+    # --- ajout de modules ------------------------------------------------------------------
     def visible_center(self) -> tuple[int, int]:
         c = self.mapToScene(self.viewport().rect().center())
         return round(c.x()), round(c.y())

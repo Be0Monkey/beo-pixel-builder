@@ -41,12 +41,12 @@ def test_t01_aller_retour_identifiants_positions_ordre(tmp_path, lib_and_kit):
     m = _model(lib)
     path = tmp_path / "Mes projets é" / "ma maison.sbsproj"  # accents + espaces
     meta = ProjectMeta(name="ma maison")
-    save_project(path, meta, m.all(), lib)
+    save_project(path, meta, m, lib)
     r = load_project(path, lib)
     assert [(i.id, i.asset_uuid, i.x, i.y, i.z_manual) for i in r.instances] == \
            [(i.id, i.asset_uuid, i.x, i.y, i.z_manual) for i in m.all()]
     m2 = SceneModel()
-    m2.replace(r.instances)
+    m2.replace(r.instances, r.floors, r.groups)
     assert m2.draw_order() == m.draw_order()
     assert r.meta.id == meta.id and not r.missing_assets and r.remapped == 0
 
@@ -56,7 +56,7 @@ def test_sauvegarde_atomique_echec_laisse_le_fichier_intact(tmp_path, lib_and_ki
     m = _model(lib)
     path = tmp_path / "p.sbsproj"
     meta = ProjectMeta()
-    save_project(path, meta, m.all(), lib)
+    save_project(path, meta, m, lib)
     before = path.read_bytes()
     m.add(lib.list_assets()[0].uuid, 1, 1)
 
@@ -65,7 +65,7 @@ def test_sauvegarde_atomique_echec_laisse_le_fichier_intact(tmp_path, lib_and_ki
 
     monkeypatch.setattr("sbs.services.atomic.os.replace", boom)
     with pytest.raises(OSError):
-        save_project(path, meta, m.all(), lib)
+        save_project(path, meta, m, lib)
     assert path.read_bytes() == before  # T12 : dernière sauvegarde saine
     assert [p.name for p in tmp_path.iterdir() if p.suffix == ".tmp"] == []  # pas de résidu
 
@@ -75,10 +75,10 @@ def test_copie_de_secours_bak(tmp_path, lib_and_kit):
     m = _model(lib)
     path = tmp_path / "p.sbsproj"
     meta = ProjectMeta()
-    save_project(path, meta, m.all(), lib)
+    save_project(path, meta, m, lib)
     first = path.read_text(encoding="utf-8")
     m.add(lib.list_assets()[0].uuid, 1, 1)
-    save_project(path, meta, m.all(), lib)
+    save_project(path, meta, m, lib)
     assert (tmp_path / "p.sbsproj.bak").read_text(encoding="utf-8") == first
 
 
@@ -148,11 +148,13 @@ def test_images_absentes_instances_conservees_et_references_gardees(tmp_path, li
     lib, _ = lib_and_kit
     m = _model(lib)
     path = tmp_path / "p.sbsproj"
-    save_project(path, ProjectMeta(), m.all(), lib)
+    save_project(path, ProjectMeta(), m, lib)
     autre = Library(tmp_path / "autre_bibliotheque")  # bibliothèque vide : tout est « absent »
     r = load_project(path, autre)
     assert len(r.instances) == 3 and len(r.missing_assets) == 2
-    save_project(path, r.meta, r.instances, autre)  # re-sauvegarde sans rien perdre
+    m2 = SceneModel()
+    m2.replace(r.instances, r.floors, r.groups)
+    save_project(path, r.meta, m2, autre)  # re-sauvegarde sans rien perdre
     doc = json.loads(path.read_text(encoding="utf-8"))
     assert len(doc["scenes"][0]["instances"]) == 3
     assert {v["source_id"] for v in doc["library_refs"].values()} == {"mur_a", "toit_b"}
@@ -162,7 +164,7 @@ def test_projet_ouvert_sur_un_autre_ordinateur_est_rattache_par_source(tmp_path,
     lib, kit = lib_and_kit
     m = _model(lib)
     path = tmp_path / "p.sbsproj"
-    save_project(path, ProjectMeta(), m.all(), lib)
+    save_project(path, ProjectMeta(), m, lib)
     autre = Library(tmp_path / "autre")
     import_kit(autre, kit)  # mêmes modules, UUID différents
     r = load_project(path, autre)
@@ -178,5 +180,5 @@ def test_chemin_long_et_accentue(tmp_path, lib_and_kit):
     path = d / "projet été.sbsproj"
     if os.name == "nt" and len(str(path)) > 240:
         pytest.skip("chemin > MAX_PATH sans préfixe long")
-    save_project(path, ProjectMeta(), _model(lib).all(), lib)
+    save_project(path, ProjectMeta(), _model(lib), lib)
     assert load_project(path, lib).instances

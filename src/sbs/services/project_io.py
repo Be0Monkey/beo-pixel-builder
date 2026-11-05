@@ -14,7 +14,15 @@ from pathlib import Path
 from typing import Any
 
 from sbs.domain.ids import is_valid_id, new_id
-from sbs.domain.scene import Instance
+from sbs.domain.scene import (
+    Floor,
+    Group,
+    Instance,
+    Layer,
+    SceneModel,
+        validate_floors,
+    validate_grouping,
+)
 from sbs.domain.schema import PROJECT_SCHEMA_VERSION
 from sbs.services.atomic import write_text_atomic
 from sbs.services.library import Library
@@ -23,7 +31,26 @@ FORMAT = "sprite-builder-studio-project"
 EXTENSION = ".sbsproj"
 
 # version de départ -> fonction qui transforme le dict vers la version suivante
-MIGRATIONS: dict[int, Any] = {}
+def _migrate_1_to_2(doc: dict) -> dict:
+    """v1 -> v2 : ajoute un étage « RDC » avec un calque et y range tous les objets."""
+    floor, layer = new_id(), new_id()
+    scenes = doc.get("scenes")
+    if isinstance(scenes, list):
+        for sc in scenes:
+            if not isinstance(sc, dict):
+                continue
+            sc["floors"] = [{"id": floor, "name": "RDC", "elevation_px": 0, "visible": True,
+                             "locked": False, "layers": [{"id": layer, "name": "Calque 1",
+                                                          "visible": True, "locked": False}]}]
+            sc["groups"] = []
+            for inst in sc.get("instances", []) if isinstance(sc.get("instances"), list) else []:
+                if isinstance(inst, dict):
+                    inst["floor_id"], inst["layer_id"], inst["group_id"] = floor, layer, None
+    doc["schema_version"] = 2
+    return doc
+
+
+MIGRATIONS: dict[int, Any] = {1: _migrate_1_to_2}
 
 
 class ProjectError(Exception):
@@ -49,13 +76,16 @@ class ProjectMeta:
 class LoadResult:
     meta: ProjectMeta
     instances: list[Instance]
+    floors: list[Floor]
+    groups: dict[str, Group]
     missing_assets: list[str]  # uuid absents de la bibliothèque (instances conservées)
     remapped: int  # instances rattachées à un autre uuid grâce à library_refs
 
 
 # --------------------------------------------------------------------------- sauvegarde
-def save_project(path: Path, meta: ProjectMeta, instances: list[Instance], library: Library) -> None:
+def save_project(path: Path, meta: ProjectMeta, model: SceneModel, library: Library) -> None:
     path = Path(path)
+    instances = model.all()
     refs = dict(meta.library_refs)  # on garde les références des images absentes
     used = {i.asset_uuid for i in instances}
     for uuid in used:
@@ -76,9 +106,19 @@ def save_project(path: Path, meta: ProjectMeta, instances: list[Instance], libra
         "scenes": [{
             "id": meta.scene_id,
             "name": meta.scene_name,
+            "floors": [
+                {"id": f.id, "name": f.name, "elevation_px": f.elevation_px, "visible": f.visible,
+                 "locked": f.locked,
+                 "layers": [{"id": layer.id, "name": layer.name, "visible": layer.visible,
+                             "locked": layer.locked} for layer in f.layers]}
+                for f in model.floors
+            ],
+            "groups": [{"id": g.id, "name": g.name, "parent_id": g.parent_id}
+                       for g in model.groups.values()],
             "instances": [
-                {"id": i.id, "asset_uuid": i.asset_uuid, "x": i.x, "y": i.y,
-                 "z_manual": i.z_manual, "variant": i.variant}
+                {"id": i.id, "asset_uuid": i.asset_uuid, "x": i.x, "y": i.y, "z_manual": i.z_manual,
+                 "variant": i.variant, "floor_id": i.floor_id, "layer_id": i.layer_id,
+                 "group_id": i.group_id}
                 for i in instances
             ],
         }],
@@ -93,6 +133,51 @@ def save_project(path: Path, meta: ProjectMeta, instances: list[Instance], libra
 
 
 # --------------------------------------------------------------------------- chargement
+def _parse_floors(raw: list) -> list[Floor]:
+    floors: list[Floor] = []
+    for n, f in enumerate(raw):
+        if not isinstance(f, dict):
+            raise ProjectError(f"projet invalide : étage n°{n + 1} illisible")
+        where = f"étage n°{n + 1}"
+        layers = []
+        for m, layer in enumerate(_need(f, "layers", list, where)):
+            if not isinstance(layer, dict):
+                raise ProjectError(f"projet invalide : calque n°{m + 1} illisible ({where})")
+            layers.append(Layer(
+                _need(layer, "id", str, where), _need(layer, "name", str, where),
+                layer["visible"] if isinstance(layer.get("visible"), bool) else True,
+                layer["locked"] if isinstance(layer.get("locked"), bool) else False,
+            ))
+        elev = f.get("elevation_px", 0)
+        if isinstance(elev, bool) or not isinstance(elev, int):
+            raise ProjectError(f"projet invalide : « elevation_px » incorrect ({where})")
+        floors.append(Floor(
+            _need(f, "id", str, where), _need(f, "name", str, where), elev,
+            f["visible"] if isinstance(f.get("visible"), bool) else True,
+            f["locked"] if isinstance(f.get("locked"), bool) else False, layers,
+        ))
+    try:
+        validate_floors(floors)
+    except ValueError as exc:
+        raise ProjectError(f"projet invalide : {exc}") from exc
+    return floors
+
+
+def _parse_groups(raw: list) -> dict[str, Group]:
+    groups: dict[str, Group] = {}
+    for n, g in enumerate(raw):
+        if not isinstance(g, dict):
+            raise ProjectError(f"projet invalide : groupe n°{n + 1} illisible")
+        gid = _need(g, "id", str, f"groupe n°{n + 1}")
+        if gid in groups:
+            raise ProjectError(f"projet invalide : groupe en double ({gid})")
+        parent = g.get("parent_id")
+        if parent is not None and not isinstance(parent, str):
+            raise ProjectError(f"projet invalide : « parent_id » incorrect (groupe n°{n + 1})")
+        groups[gid] = Group(gid, str(g.get("name") or "Groupe"), parent)
+    return groups
+
+
 def _need(d: dict, key: str, typ: type, where: str):
     v = d.get(key)
     if isinstance(v, bool) or not isinstance(v, typ):
@@ -142,6 +227,9 @@ def load_project(path: Path, library: Library) -> LoadResult:
             if isinstance(k, str) and isinstance(v, dict)
             and all(isinstance(v.get(f), str) for f in ("origin", "source_id"))}
 
+    floors = _parse_floors(_need(scene, "floors", list, "scène"))
+    groups = _parse_groups(_need(scene, "groups", list, "scène"))
+    valid_targets = {(f.id, layer.id) for f in floors for layer in f.layers}
     instances: list[Instance] = []
     seen: set[str] = set()
     missing: list[str] = []
@@ -162,6 +250,12 @@ def load_project(path: Path, library: Library) -> LoadResult:
         variant = d.get("variant")
         if variant is not None and not isinstance(variant, str):
             raise ProjectError(f"projet invalide : « variant » incorrect ({where})")
+        floor_id, layer_id = _need(d, "floor_id", str, where), _need(d, "layer_id", str, where)
+        if (floor_id, layer_id) not in valid_targets:
+            raise ProjectError(f"projet invalide : {where} référence un étage ou un calque inconnu")
+        group_id = d.get("group_id")
+        if group_id is not None and not isinstance(group_id, str):
+            raise ProjectError(f"projet invalide : « group_id » incorrect ({where})")
 
         if library.get(asset_uuid) is None:
             ref = refs.get(asset_uuid)
@@ -170,7 +264,12 @@ def load_project(path: Path, library: Library) -> LoadResult:
                 asset_uuid, remapped = found.uuid, remapped + 1
             elif asset_uuid not in missing:
                 missing.append(asset_uuid)  # l'instance est conservée (repère rose)
-        instances.append(Instance(inst_id, asset_uuid, x, y, z, variant))
+        instances.append(Instance(inst_id, asset_uuid, x, y, z, variant, floor_id, layer_id, group_id))
+
+    try:
+        validate_grouping(groups, {i.id: i.group_id for i in instances})
+    except ValueError as exc:
+        raise ProjectError(f"projet invalide : {exc}") from exc
 
     meta = ProjectMeta(
         id=doc["id"] if isinstance(doc.get("id"), str) and is_valid_id(doc.get("id")) else new_id(),
@@ -181,4 +280,4 @@ def load_project(path: Path, library: Library) -> LoadResult:
         updated_at=str(doc.get("updated_at") or _now()),
         library_refs=refs,
     )
-    return LoadResult(meta, instances, missing, remapped)
+    return LoadResult(meta, instances, floors, groups, missing, remapped)

@@ -1,6 +1,7 @@
 """Export PNG RGBA natif, calculé avec Pillow (indépendant de Qt, donc comparable pixel à pixel).
 
-Règles : ordre de dessin = SceneModel.draw_order(), transparence conservée, aucune interpolation
+Règles : les instances sont fournies DANS L'ORDRE DE DESSIN (SceneModel.draw_instances(), qui
+exclut déjà les étages/calques masqués), transparence conservée, aucune interpolation
 (agrandissement par facteur entier, voisin le plus proche), grilles et repères jamais exportés,
 écriture atomique (le fichier précédent reste intact en cas d'échec).
 """
@@ -34,10 +35,6 @@ class ExportResult:
     skipped: list[str] = field(default_factory=list)  # modules dont l'image est absente/illisible
 
 
-def _ordered(instances: list[Instance]) -> list[Instance]:
-    return sorted(instances, key=lambda i: (i.z_manual, i.y))  # tri stable = ordre d'insertion
-
-
 def render_scene(
     instances: list[Instance],
     library: Library,
@@ -48,7 +45,7 @@ def render_scene(
         raise ExportError(f"facteur d'agrandissement invalide (entier de 1 à {MAX_SCALE})")
     placed: list[tuple[Image.Image, int, int]] = []
     skipped: list[str] = []
-    for inst in _ordered(instances):
+    for inst in instances:
         asset = library.get(inst.asset_uuid)
         if asset is None:
             skipped.append(inst.asset_uuid)

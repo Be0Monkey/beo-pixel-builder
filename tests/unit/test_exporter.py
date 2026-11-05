@@ -52,7 +52,7 @@ def test_t09_un_sprite_exporte_est_identique_a_l_original(env):
     lib, asset, original, tmp = env
     m = SceneModel()
     m.add(asset.uuid, 100, 50)
-    r = export_png(tmp / "out" / "maison é.png", m.all(), lib)
+    r = export_png(tmp / "out" / "maison é.png", m.draw_instances(), lib)
     out = Image.open(r.path)
     assert out.mode == "RGBA"
     _same_pixels(out, original)
@@ -64,15 +64,15 @@ def test_ordre_de_dessin_profondeur_puis_z_manuel(env):
     m = SceneModel()
     loin = m.add(asset.uuid, 0, 10)
     pres = m.add(asset.uuid, 1, 10)  # même y : insertion → pres au-dessus
-    img, _ = render_scene(m.all(), lib)
+    img, _ = render_scene(m.draw_instances(), lib)
     assert img.size == (17, 20)  # deux sprites décalés d'un pixel
     # même profondeur : « pres » (inséré après) recouvre « loin » ; en forçant « loin » devant,
     # le résultat change.
     m.set_z_manual(loin.id, 1)
-    img2, _ = render_scene(m.all(), lib)
+    img2, _ = render_scene(m.draw_instances(), lib)
     assert img.tobytes() != img2.tobytes()
     m.set_z_manual(loin.id, 0)
-    assert render_scene(m.all(), lib)[0].tobytes() == img.tobytes()  # déterministe
+    assert render_scene(m.draw_instances(), lib)[0].tobytes() == img.tobytes()  # déterministe
 
 
 def test_variante_exportee(env):
@@ -80,7 +80,7 @@ def test_variante_exportee(env):
     m = SceneModel()
     i = m.add(asset.uuid, 0, 0)
     i.variant = "gres"
-    img, _ = render_scene(m.all(), lib)
+    img, _ = render_scene(m.draw_instances(), lib)
     assert img.getpixel((0, 0)) == (255, 255, 0, 255)
 
 
@@ -88,12 +88,12 @@ def test_rectangle_explicite_decoupe_et_decalage(env):
     lib, asset, original, tmp = env
     m = SceneModel()
     m.add(asset.uuid, 0, 0)  # image en (-3, -17)
-    img, r = render_scene(m.all(), lib, rect=(-3, -17, 8, 10))
+    img, r = render_scene(m.draw_instances(), lib, rect=(-3, -17, 8, 10))
     assert img.size == (8, 10)
     _same_pixels(img, original.crop((0, 0, 8, 10)))
-    vide, _ = render_scene(m.all(), lib, rect=(500, 500, 4, 4))
+    vide, _ = render_scene(m.draw_instances(), lib, rect=(500, 500, 4, 4))
     assert vide.getbbox() is None  # tout transparent, pas de plantage
-    img, _ = render_scene(m.all(), lib, rect=(-20, -30, 40, 40))  # plus grand que le sprite
+    img, _ = render_scene(m.draw_instances(), lib, rect=(-20, -30, 40, 40))  # plus grand que le sprite
     assert img.getpixel((0, 0)) == (0, 0, 0, 0)
 
 
@@ -101,9 +101,9 @@ def test_agrandissement_entier_sans_flou(env):
     lib, asset, original, tmp = env
     m = SceneModel()
     m.add(asset.uuid, 0, 0)
-    img, r = render_scene(m.all(), lib, scale=3)
+    img, r = render_scene(m.draw_instances(), lib, scale=3)
     assert img.size == (48, 60) and r.scale == 3
-    base, _ = render_scene(m.all(), lib)
+    base, _ = render_scene(m.draw_instances(), lib)
     for y in (0, 7, 19):
         for x in (0, 5, 15):
             for dy in range(3):
@@ -117,7 +117,7 @@ def test_facteur_invalide(env, scale):
     m = SceneModel()
     m.add(asset.uuid, 0, 0)
     with pytest.raises(ExportError):
-        render_scene(m.all(), lib, scale=scale)
+        render_scene(m.draw_instances(), lib, scale=scale)
 
 
 @pytest.mark.parametrize("rect", [(0, 0, 0, 5), (0, 0, 5, -1), (0, 0, 1.5, 5)])
@@ -126,7 +126,7 @@ def test_rectangle_invalide(env, rect):
     m = SceneModel()
     m.add(asset.uuid, 0, 0)
     with pytest.raises(ExportError):
-        render_scene(m.all(), lib, rect=rect)
+        render_scene(m.draw_instances(), lib, rect=rect)
 
 
 def test_scene_vide_et_trop_grande(env):
@@ -136,7 +136,7 @@ def test_scene_vide_et_trop_grande(env):
     m = SceneModel()
     m.add(asset.uuid, 0, 0)
     with pytest.raises(ExportError, match="trop grande"):
-        render_scene(m.all(), lib, rect=(0, 0, 20000, 20000))
+        render_scene(m.draw_instances(), lib, rect=(0, 0, 20000, 20000))
 
 
 def test_image_manquante_signalee_et_le_reste_exporte(env):
@@ -144,7 +144,7 @@ def test_image_manquante_signalee_et_le_reste_exporte(env):
     m = SceneModel()
     m.add(asset.uuid, 0, 0)
     m.add("uuid-inconnu", 5, 5)
-    r = export_png(tmp / "o.png", m.all(), lib)
+    r = export_png(tmp / "o.png", m.draw_instances(), lib)
     assert r.count == 1 and r.skipped == ["uuid-inconnu"] and r.path.exists()
 
 
@@ -153,7 +153,7 @@ def test_echec_d_ecriture_laisse_le_fichier_precedent(env, monkeypatch):
     m = SceneModel()
     m.add(asset.uuid, 0, 0)
     out = tmp / "o.png"
-    export_png(out, m.all(), lib)
+    export_png(out, m.draw_instances(), lib)
     before = out.read_bytes()
 
     def boom(*a, **k):
@@ -161,7 +161,7 @@ def test_echec_d_ecriture_laisse_le_fichier_precedent(env, monkeypatch):
 
     monkeypatch.setattr("sbs.services.exporter.os.replace", boom)
     with pytest.raises(ExportError, match="n'a pas été modifié"):
-        export_png(out, m.all(), lib)
+        export_png(out, m.draw_instances(), lib)
     assert out.read_bytes() == before
     assert [p for p in tmp.iterdir() if p.suffix == ".tmp"] == []
 

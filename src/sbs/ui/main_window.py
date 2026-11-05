@@ -33,6 +33,7 @@ from sbs.services.project_io import (
     save_project,
 )
 from sbs.services.preferences import Preferences
+from sbs.ui.floors_panel import FloorsPanel
 from sbs.ui.library_panel import LibraryPanel
 
 _B64 = "utf-8"
@@ -69,8 +70,9 @@ class MainWindow(QMainWindow):
                        self.library_panel)
         self._add_dock("properties", "Propriétés", Qt.DockWidgetArea.RightDockWidgetArea,
                        "Propriétés\n(jalon J1b)")
+        self.floors_panel = FloorsPanel(self.canvas_scene)
         self._add_dock("floors", "Étages / Calques", Qt.DockWidgetArea.RightDockWidgetArea,
-                       "Étages et calques\n(jalon J2)")
+                       self.floors_panel)
 
         self.library_panel.asset_activated.connect(self.canvas.add_asset_at_center)
         self.pos_label = QLabel()
@@ -84,6 +86,8 @@ class MainWindow(QMainWindow):
         self._update_status()
         self._on_history_changed()
         self._update_title()
+        self._load_view_prefs()
+        self.canvas_scene.add_context_listener(self._update_status)
         QApplication.clipboard().dataChanged.connect(lambda: setattr(self, "_paste_n", 0))
         self._default_state = self.saveState()
         self._default_geometry = self.saveGeometry()
@@ -129,6 +133,13 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(QAction("&Supprimer", self, shortcut="Delete",
                                     triggered=self.canvas_scene.remove_selected))
         edit_menu.addSeparator()
+        self.act_group = QAction("&Grouper", self, shortcut="Ctrl+G", triggered=self.group_selection)
+        self.act_ungroup = QAction("Dég&rouper", self, shortcut="Ctrl+Shift+G",
+                                   triggered=self.canvas_scene.ungroup_selected)
+        edit_menu.addAction(self.act_group)
+        edit_menu.addAction(self.act_ungroup)
+        edit_menu.addAction(QAction("&Sortir du groupe", self, triggered=self.canvas_scene.exit_group))
+        edit_menu.addSeparator()
         edit_menu.addAction(QAction("Mettre &devant", self, shortcut="Ctrl+]",
                                     triggered=lambda: self.canvas_scene.shift_z_selected(1)))
         edit_menu.addAction(QAction("Mettre d&errière", self, shortcut="Ctrl+[",
@@ -140,9 +151,18 @@ class MainWindow(QMainWindow):
         view_menu.addAction(QAction("Zoom +", self, shortcut="Ctrl++", triggered=self.canvas.zoom_in))
         view_menu.addAction(QAction("Zoom −", self, shortcut="Ctrl+-", triggered=self.canvas.zoom_out))
         view_menu.addAction(QAction("Zoom 200 %", self, shortcut="Ctrl+0", triggered=self.canvas.zoom_reset))
-        grid = QAction("Grille (32 px)", self, checkable=True, shortcut="G")
-        grid.toggled.connect(self.canvas.set_grid_visible)
-        view_menu.addAction(grid)
+        self.act_grid = QAction("Afficher la &grille", self, checkable=True, shortcut="G")
+        self.act_grid.toggled.connect(self._grid_visible_toggled)
+        self.act_snap_grid = QAction("Aimant : grille", self, checkable=True)
+        self.act_snap_edges = QAction("Aimant : bords", self, checkable=True)
+        self.act_snap_grid.toggled.connect(self._snap_changed)
+        self.act_snap_edges.toggled.connect(self._snap_changed)
+        view_menu.addAction(self.act_grid)
+        view_menu.addAction(self.act_snap_grid)
+        view_menu.addAction(self.act_snap_edges)
+        size_menu = view_menu.addMenu("Taille de la grille")
+        for px in (8, 16, 32, 64):
+            size_menu.addAction(QAction(f"{px} px", self, triggered=lambda _=False, v=px: self._set_grid_size(v)))
         view_menu.addSeparator()
         for dock in self.docks.values():
             view_menu.addAction(dock.toggleViewAction())
@@ -159,14 +179,22 @@ class MainWindow(QMainWindow):
         tb.setObjectName("toolbar_main")
         tb.setMovable(True)
         self.addToolBar(tb)
-        tb.addWidget(QLabel("  Outils : à venir (J1)  "))
+        for act in (self.act_grid, self.act_snap_grid, self.act_snap_edges):
+            act.setToolTip(act.text().replace("&", "") + " (Alt pendant un glissement : aimant coupé)")
+            tb.addAction(act)
+        tb.addSeparator()
+        tb.addAction(self.act_group)
+        tb.addAction(self.act_ungroup)
 
     def _update_status(self, x: int | None = None, y: int | None = None) -> None:
         if x is not None:
             self._mouse = (x, y)
         self.pos_label.setText(
             f"X: {self._mouse[0]}  Y: {self._mouse[1]}  |  Zoom: {round(self.canvas.zoom * 100)} %"
-            f"  |  {len(self.scene_model)} objet(s)"
+            f"  |  Aimant : {self.snap_label()}"
+            + (f"  |  Groupe : {' > '.join(self.canvas_scene.group_path())}"
+               if self.canvas_scene.entered_group else "")
+            + f"  |  {len(self.scene_model)} objet(s)"
         )
 
     # --- document ---------------------------------------------------------------------------
@@ -215,8 +243,8 @@ class MainWindow(QMainWindow):
         self._apply(ProjectMeta(), [], None)
         return True
 
-    def _apply(self, meta: ProjectMeta, instances, path: Path | None) -> None:
-        self.scene_model.replace(instances)  # la scène se synchronise sur le modèle
+    def _apply(self, meta: ProjectMeta, instances, path: Path | None, floors=None, groups=None) -> None:
+        self.scene_model.replace(instances, floors, groups)  # la scène se synchronise sur le modèle
         self.history.clear()
         self.meta, self.path = meta, path
         self._update_title()
@@ -238,7 +266,7 @@ class MainWindow(QMainWindow):
         except ProjectError as exc:
             QMessageBox.critical(self, "Ouverture impossible", str(exc))
             return False
-        self._apply(result.meta, result.instances, Path(path))
+        self._apply(result.meta, result.instances, Path(path), result.floors, result.groups)
         notes = []
         if result.missing_assets:
             notes.append(f"{len(result.missing_assets)} image(s) absente(s) de la bibliothèque : "
@@ -271,7 +299,7 @@ class MainWindow(QMainWindow):
         try:
             if self.path is None or Path(path) != self.path:
                 self.meta.name = Path(path).stem
-            save_project(Path(path), self.meta, self.scene_model.all(), self.library)
+            save_project(Path(path), self.meta, self.scene_model, self.library)
         except (OSError, ProjectError) as exc:
             QMessageBox.critical(
                 self, "Enregistrement impossible",
@@ -283,6 +311,42 @@ class MainWindow(QMainWindow):
         self._update_title()
         self.statusBar().showMessage(f"Enregistré : {path}", 4000)
         return True
+
+    # --- aimantation, grille, groupes ---------------------------------------------------------
+    def _load_view_prefs(self) -> None:
+        snap = self.canvas_scene.snap
+        snap.grid_size = int(self.prefs.get("snap.grid_size", 32) or 32)
+        for act, key in ((self.act_grid, "view.grid"), (self.act_snap_grid, "snap.grid"),
+                         (self.act_snap_edges, "snap.edges")):
+            act.setChecked(bool(self.prefs.get(key, False)))
+        self._snap_changed()
+
+    def _grid_visible_toggled(self, on: bool) -> None:
+        self.canvas.set_grid_visible(on)
+        self.prefs.set("view.grid", bool(on))
+
+    def _snap_changed(self) -> None:
+        snap = self.canvas_scene.snap
+        snap.grid, snap.edges = self.act_snap_grid.isChecked(), self.act_snap_edges.isChecked()
+        self.prefs.set("snap.grid", snap.grid)
+        self.prefs.set("snap.edges", snap.edges)
+        self._update_status()
+
+    def _set_grid_size(self, px: int) -> None:
+        self.canvas_scene.snap.grid_size = px
+        self.prefs.set("snap.grid_size", px)
+        self.canvas.viewport().update()
+
+    def snap_label(self) -> str:
+        parts = [n for n, on in (("Grille", self.canvas_scene.snap.grid),
+                                 ("Bords", self.canvas_scene.snap.edges)) if on]
+        return "+".join(parts) if parts else "aucun"
+
+    def group_selection(self) -> bool:
+        error = self.canvas_scene.group_selected()
+        if error:
+            self.statusBar().showMessage(error, 5000)
+        return error is None
 
     # --- copier / coller / dupliquer -----------------------------------------------------------
     def copy_selection(self) -> bool:
@@ -342,7 +406,7 @@ class MainWindow(QMainWindow):
     def export_to(self, path: Path, scale: int = 1) -> bool:
         self.canvas_scene.commit_positions()
         try:
-            r = export_png(Path(path), self.scene_model.all(), self.library, scale=scale)
+            r = export_png(Path(path), self.scene_model.draw_instances(), self.library, scale=scale)
         except ExportError as exc:
             QMessageBox.critical(self, "Export impossible", str(exc))
             return False

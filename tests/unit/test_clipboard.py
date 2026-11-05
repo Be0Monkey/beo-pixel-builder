@@ -24,7 +24,7 @@ def test_aller_retour(lib):
     m = SceneModel()
     i = m.add(a.uuid, 4, 5)
     m.set_z_manual(i.id, 2)
-    entries = decode_instances(encode_instances(m.all(), lib))
+    entries, _groups = decode_instances(encode_instances(m.all(), lib, m))
     assert [(e.asset_uuid, e.source_id, e.x, e.y, e.z_manual) for e in entries] == \
            [(a.uuid, "mur_a", 4, 5, 2)]
 
