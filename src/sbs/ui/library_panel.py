@@ -6,7 +6,10 @@ from pathlib import Path
 from PySide6.QtCore import QMimeData, QObject, QSize, Qt, QThread, Signal, Slot
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
+    QInputDialog,
+    QMenu,
     QFileDialog,
     QLabel,
     QLineEdit,
@@ -22,7 +25,7 @@ from PySide6.QtWidgets import (
 
 from sbs.canvas.mime import ASSET_MIME
 from sbs.services.kit_importer import ImportReport, KitError, import_kit
-from sbs.services.library import Library
+from sbs.services.library import Library, LibraryError
 
 ASSET_ROLE = Qt.ItemDataRole.UserRole
 
@@ -73,6 +76,8 @@ class LibraryPanel(QWidget):
 
         self.search = QLineEdit(placeholderText="Rechercher…", clearButtonEnabled=True)
         self.category = QComboBox()
+        self.tag_filter = QComboBox()
+        self.fav_only = QCheckBox("Favoris seulement")
         self.list = AssetList()
         self.list.setDragEnabled(True)
         self.list.setDragDropMode(QListView.DragDropMode.DragOnly)
@@ -89,12 +94,18 @@ class LibraryPanel(QWidget):
         lay = QVBoxLayout(self)
         lay.addWidget(self.search)
         lay.addWidget(self.category)
+        lay.addWidget(self.tag_filter)
+        lay.addWidget(self.fav_only)
         lay.addWidget(self.list, 1)
         lay.addWidget(self.count_label)
         lay.addWidget(self.import_button)
 
         self.search.textChanged.connect(self.refresh)
         self.category.currentIndexChanged.connect(self.refresh)
+        self.tag_filter.currentIndexChanged.connect(self.refresh)
+        self.fav_only.toggled.connect(self.refresh)
+        self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.list.customContextMenuRequested.connect(self._context_menu)
         self.import_button.clicked.connect(self.choose_and_import)
         self.list.itemDoubleClicked.connect(lambda it: self.asset_activated.emit(it.data(ASSET_ROLE)))
         self.reload_categories()
@@ -111,17 +122,28 @@ class LibraryPanel(QWidget):
         idx = self.category.findData(current)
         self.category.setCurrentIndex(max(0, idx))
         self.category.blockSignals(False)
+        cur_tag = self.tag_filter.currentData()
+        self.tag_filter.blockSignals(True)
+        self.tag_filter.clear()
+        self.tag_filter.addItem("Tous les mots-clés", None)
+        for t in self.library.all_tags():
+            self.tag_filter.addItem(t, t)
+        self.tag_filter.setCurrentIndex(max(0, self.tag_filter.findData(cur_tag)))
+        self.tag_filter.blockSignals(False)
 
     def refresh(self) -> None:
-        assets = self.library.list_assets(self.search.text(), self.category.currentData())
+        assets = self.library.list_assets(self.search.text(), self.category.currentData(),
+                                          self.fav_only.isChecked(), self.tag_filter.currentData())
         self.list.clear()
         for a in assets:
-            item = QListWidgetItem(a.name)
+            item = QListWidgetItem(("★ " if a.favorite else "") + a.name)
             thumb = self.library.thumbnail_path(a.uuid)
             if thumb.exists():
                 item.setIcon(QIcon(QPixmap(str(thumb))))
             item.setData(ASSET_ROLE, a.uuid)
             tip = f"{a.name}\n{a.description}\n{a.width}×{a.height} px · pivot ({a.pivot_x}, {a.pivot_y})"
+            if a.tags:
+                tip += "\nMots-clés : " + ", ".join(a.tags)
             if a.variants:
                 tip += "\nVariantes : " + ", ".join(v.name for v in a.variants)
             item.setToolTip(tip)
@@ -131,6 +153,57 @@ class LibraryPanel(QWidget):
             self.count_label.setText("Bibliothèque vide : importe ton kit de sprites.")
         else:
             self.count_label.setText(f"{len(assets)} affiché(s) sur {total}")
+
+    # --- organisation (clic droit) -------------------------------------------------------
+    def _context_menu(self, pos) -> None:
+        item = self.list.itemAt(pos)
+        if item is None:
+            return
+        uuid = item.data(ASSET_ROLE)
+        asset = self.library.get(uuid)
+        if asset is None:
+            return
+        menu = QMenu(self)
+        menu.addAction("Retirer des favoris" if asset.favorite else "Ajouter aux favoris",
+                       lambda: self.toggle_favorite(uuid))
+        menu.addAction("Mots-clés…", lambda: self.edit_tags(uuid))
+        menu.addAction("Changer de catégorie…", lambda: self.edit_category(uuid))
+        menu.exec(self.list.mapToGlobal(pos))
+
+    def toggle_favorite(self, uuid: str) -> None:
+        asset = self.library.get(uuid)
+        if asset is not None:
+            self.library.set_favorite(uuid, not asset.favorite)
+            self.refresh()
+
+    def edit_tags(self, uuid: str) -> None:
+        asset = self.library.get(uuid)
+        if asset is None:
+            return
+        text, ok = QInputDialog.getText(self, "Mots-clés", "Mots-clés séparés par des virgules :",
+                                        text=", ".join(asset.tags))
+        if ok:
+            try:
+                self.library.set_tags(uuid, text.split(","))
+            except LibraryError as exc:
+                QMessageBox.warning(self, "Mots-clés", str(exc))
+            self.reload_categories()
+            self.refresh()
+
+    def edit_category(self, uuid: str) -> None:
+        asset = self.library.get(uuid)
+        if asset is None:
+            return
+        cats = self.library.categories()
+        text, ok = QInputDialog.getItem(self, "Catégorie", "Choisis ou écris une catégorie :",
+                                        cats, max(0, cats.index(asset.category)) if asset.category in cats else 0, True)
+        if ok:
+            try:
+                self.library.set_category(uuid, text)
+            except LibraryError as exc:
+                QMessageBox.warning(self, "Catégorie", str(exc))
+            self.reload_categories()
+            self.refresh()
 
     # --- import ---------------------------------------------------------
     def choose_and_import(self) -> None:

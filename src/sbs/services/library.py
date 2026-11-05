@@ -11,7 +11,8 @@ from collections.abc import Callable
 
 from sbs.domain.asset import Anchor, Asset, Variant
 
-DB_VERSION = 2
+DB_VERSION = 3
+MAX_TAGS = 20
 MAX_ANCHORS = 32
 
 _SCHEMA = """
@@ -31,6 +32,8 @@ CREATE TABLE IF NOT EXISTS assets (
   revision INTEGER NOT NULL DEFAULT 1,
   extra_json TEXT NOT NULL DEFAULT '{}',
   anchors_json TEXT NOT NULL DEFAULT '[]',
+  favorite INTEGER NOT NULL DEFAULT 0,
+  tags_json TEXT NOT NULL DEFAULT '[]',
   UNIQUE (origin, source_id)
 );
 CREATE TABLE IF NOT EXISTS variants (
@@ -50,6 +53,13 @@ class LibraryError(Exception):
 
 def dump_anchors(anchors) -> str:
     return json.dumps([[a.name, a.x, a.y] for a in anchors], ensure_ascii=False)
+
+
+def parse_tags(text: str) -> tuple[str, ...]:
+    try:
+        return tuple(str(t) for t in json.loads(text or "[]") if str(t).strip())
+    except (ValueError, TypeError):
+        return ()
 
 
 def parse_anchors(text: str) -> tuple[Anchor, ...]:
@@ -72,8 +82,11 @@ class Library:
                 raise LibraryError(f"bibliothèque créée par une version plus récente ({version})")
             db.executescript(_SCHEMA)
             cols = {r[1] for r in db.execute("PRAGMA table_info(assets)")}
-            if "anchors_json" not in cols:  # migration 1 -> 2
-                db.execute("ALTER TABLE assets ADD COLUMN anchors_json TEXT NOT NULL DEFAULT '[]'")
+            for col, ddl in (("anchors_json", "TEXT NOT NULL DEFAULT '[]'"),  # migrations 1 -> 2 -> 3
+                             ("favorite", "INTEGER NOT NULL DEFAULT 0"),
+                             ("tags_json", "TEXT NOT NULL DEFAULT '[]'")):
+                if col not in cols:
+                    db.execute(f"ALTER TABLE assets ADD COLUMN {col} {ddl}")
             db.execute(f"PRAGMA user_version = {DB_VERSION}")
         self._listeners: list[Callable[[str], None]] = []
 
@@ -111,15 +124,21 @@ class Library:
             ).fetchone()
             return self._to_asset(db, r) if r else None
 
-    def list_assets(self, search: str = "", category: str | None = None) -> list[Asset]:
+    def list_assets(self, search: str = "", category: str | None = None,
+                    favorites_only: bool = False, tag: str | None = None) -> list[Asset]:
         sql, args = "SELECT * FROM assets WHERE 1=1", []
         if category:
             sql += " AND category = ?"
             args.append(category)
+        if favorites_only:
+            sql += " AND favorite = 1"
+        if tag:
+            sql += " AND lower(tags_json) LIKE ?"
+            args.append("%" + json.dumps(tag.lower(), ensure_ascii=False) + "%")
         if search.strip():
             like = f"%{search.strip().lower()}%"
-            sql += " AND (lower(name) LIKE ? OR lower(description) LIKE ?)"
-            args += [like, like]
+            sql += " AND (lower(name) LIKE ? OR lower(description) LIKE ? OR lower(tags_json) LIKE ?)"
+            args += [like, like, like]
         sql += " ORDER BY category, name"
         with self.connect() as db:
             rows = db.execute(sql, args).fetchall()
@@ -144,7 +163,8 @@ class Library:
             image_path=r["image_path"], normal_path=r["normal_path"],
             emission_path=r["emission_path"], sha256=r["sha256"], revision=r["revision"],
             variants=variants, extra=json.loads(r["extra_json"]), origin=r["origin"],
-            anchors=parse_anchors(r["anchors_json"]),
+            anchors=parse_anchors(r["anchors_json"]), favorite=bool(r["favorite"]),
+            tags=parse_tags(r["tags_json"]),
         )
 
     def abs_path(self, relative: str) -> Path:
@@ -158,11 +178,11 @@ class Library:
         db.execute(
             "INSERT INTO assets (uuid, origin, source_id, name, category, description, width, height,"
             " pivot_x, pivot_y, mode, image_path, normal_path, emission_path, sha256, revision,"
-            " extra_json, anchors_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " extra_json, anchors_json, favorite, tags_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (a.uuid, origin, a.source_id, a.name, a.category, a.description, a.width, a.height,
              a.pivot_x, a.pivot_y, a.mode, a.image_path, a.normal_path, a.emission_path,
              a.sha256, a.revision, json.dumps(a.extra, ensure_ascii=False),
-             dump_anchors(a.anchors)),
+             dump_anchors(a.anchors), int(a.favorite), json.dumps(list(a.tags), ensure_ascii=False)),
         )
         for v in a.variants:
             db.execute(
@@ -249,3 +269,44 @@ class Library:
             shutil.rmtree(new_dir, ignore_errors=True)
             raise
         return self.get(new)
+
+    # --- organisation : favori, mots-clés, catégorie ---------------------------------------
+    def _update(self, uuid: str, column: str, value) -> None:
+        with self.connect() as db:
+            cur = db.execute(f"UPDATE assets SET {column}=? WHERE uuid=?", (value, uuid))  # noqa: S608 (colonne fixe)
+            if cur.rowcount == 0:
+                raise LibraryError("ressource inconnue")
+
+    def set_favorite(self, uuid: str, value: bool) -> None:
+        self._update(uuid, "favorite", int(bool(value)))
+
+    @staticmethod
+    def clean_tags(tags) -> list[str]:
+        out: list[str] = []
+        for t in tags:
+            t = " ".join(str(t).split())
+            if t and t.lower() not in {o.lower() for o in out}:
+                out.append(t[:40])
+        if len(out) > MAX_TAGS:
+            raise LibraryError(f"{MAX_TAGS} mots-clés au maximum")
+        return out
+
+    def set_tags(self, uuid: str, tags) -> list[str]:
+        clean = self.clean_tags(tags)
+        self._update(uuid, "tags_json", json.dumps(clean, ensure_ascii=False))
+        return clean
+
+    def set_category(self, uuid: str, category: str) -> str:
+        category = " ".join(str(category).split())[:60]
+        if not category:
+            raise LibraryError("la catégorie ne peut pas être vide")
+        self._update(uuid, "category", category)
+        return category
+
+    def all_tags(self) -> list[str]:
+        seen: dict[str, str] = {}
+        with self.connect() as db:
+            for (text,) in db.execute("SELECT tags_json FROM assets WHERE tags_json != '[]'"):
+                for t in parse_tags(text):
+                    seen.setdefault(t.lower(), t)
+        return sorted(seen.values(), key=str.lower)

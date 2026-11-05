@@ -256,6 +256,12 @@ class SceneModel:
         self._instances[inst_id].asset_uuid = asset_uuid
         self._notify()
 
+    def set_variant(self, inst_id: str, variant: str | None) -> None:
+        if variant is not None and (not isinstance(variant, str) or not variant):
+            raise ValueError("nom de variante invalide")
+        self._instances[inst_id].variant = variant
+        self._notify()
+
     def touch(self) -> None:
         """Prévient les écouteurs sans rien changer (ex. une ressource a été modifiée)."""
         self._notify()

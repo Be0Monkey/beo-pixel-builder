@@ -13,6 +13,7 @@ Rect = tuple[int, int, int, int]  # gauche, haut, droite, bas (droite/bas exclus
 class SnapSettings:
     grid: bool = False
     edges: bool = False
+    anchors: bool = False  # ancrages nommés des modules (J3)
     grid_size: int = 32
     threshold_px: int = 8  # seuil de capture, en pixels d'écran
     priority: str = "edges"  # à distance égale : "edges" ou "grid"
@@ -50,12 +51,31 @@ def _axis(moving: tuple[int, int], pivot: int, targets: list[int], s: SnapSettin
     return best[2], sorted(guides)
 
 
+def _anchor_snap(moving_points, other_points, thr: int):
+    """Meilleure paire d'ancrages (un de la sélection, un d'un autre module) à portée sur X ET Y."""
+    best = None
+    for mx, my in moving_points:
+        for ox, oy in other_points:
+            dx, dy = ox - mx, oy - my
+            if abs(dx) <= thr and abs(dy) <= thr:
+                key = (abs(dx) + abs(dy), ox, oy)
+                if best is None or key < best[0]:
+                    best = (key, dx, dy, ox, oy)
+    return best
+
+
 def compute_snap(moving: Rect, pivot: tuple[int, int], others: list[Rect],
-                 settings: SnapSettings, zoom: float) -> SnapResult:
-    """moving : boîte (déjà déplacée du geste brut) de la sélection ; pivot : pivot de l'objet saisi."""
-    if not (settings.grid or settings.edges):
+                 settings: SnapSettings, zoom: float, moving_points=(), other_points=()) -> SnapResult:
+    """moving : boîte (déjà déplacée du geste brut) de la sélection ; pivot : pivot de l'objet saisi.
+    moving_points / other_points : ancrages nommés (coordonnées de la scène), pour settings.anchors."""
+    if not (settings.grid or settings.edges or settings.anchors):
         return SnapResult()
     thr = max(1, round(settings.threshold_px / max(zoom, 0.01)))
+    if settings.anchors and moving_points and other_points:
+        hit = _anchor_snap(moving_points, other_points, thr)
+        if hit:  # un ancrage tombe sur un autre : il gagne sur grille et bords (2 axes d'un coup)
+            _, dx, dy, ox, oy = hit
+            return SnapResult(dx, dy, [("v", ox), ("h", oy)])
     xs: list[int] = []
     ys: list[int] = []
     for l, t, r, b in others:

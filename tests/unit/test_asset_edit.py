@@ -69,3 +69,35 @@ def test_ancienne_bibliotheque_v1_migree(tmp_path):
     db.close()
     lb = Library(root)
     assert lb.get("u").anchors == ()
+
+
+def test_favoris_motscles_categorie_et_filtres(lib):
+    a = lib.list_assets()[0]
+    lib.set_favorite(a.uuid, True)
+    assert lib.get(a.uuid).favorite and lib.list_assets(favorites_only=True)
+    clean = lib.set_tags(a.uuid, [" Fenêtre  ronde ", "fenêtre ronde", "", "bois"])
+    assert clean == ["Fenêtre ronde", "bois"]
+    assert lib.list_assets(tag="bois") and not lib.list_assets(tag="boi")  # mot-clé exact
+    assert lib.list_assets(search="bois")  # la recherche couvre les mots-clés
+    assert lib.all_tags() == ["bois", "Fenêtre ronde"]
+    assert lib.set_category(a.uuid, "  Ouvertures  ") == "Ouvertures"
+    assert lib.categories() == ["Ouvertures"]
+    with pytest.raises(LibraryError):
+        lib.set_category(a.uuid, "   ")
+    with pytest.raises(LibraryError):
+        lib.set_tags(a.uuid, [f"t{i}" for i in range(21)])
+    assert Library(lib.root).get(a.uuid).favorite  # persistant
+    lib.set_favorite(a.uuid, False)
+    assert not lib.list_assets(favorites_only=True)
+
+
+def test_references_manquantes(lib):
+    from sbs.domain.scene import SceneModel
+    from sbs.services.references import find_missing
+    a = lib.list_assets()[0]
+    m = SceneModel()
+    ok = m.add(a.uuid, 0, 0)
+    ghost = m.add("inconnu", 0, 0)
+    assert find_missing(m, lib) == [(ghost.id, "ressource absente de la bibliothèque")]
+    lib.abs_path(a.image_path).unlink()
+    assert {i for i, _ in find_missing(m, lib)} == {ok.id, ghost.id}

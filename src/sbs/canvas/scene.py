@@ -7,7 +7,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsPixmapItem, QGraphicsScene
 
 from sbs.canvas.pixmaps import PixmapCache
-from sbs.commands.assets import DetachAndEdit, EditSourceGeometry
+from sbs.commands.assets import DetachAndEdit, EditSourceGeometry, SetVariant
 from sbs.commands.history import History
 from sbs.commands.instances import Macro, MoveInstances, RemoveInstances, SetZ
 from sbs.commands.structure import (
@@ -31,8 +31,9 @@ class InstanceItem(QGraphicsPixmapItem):
     """Image d'une instance. Le déplacement est géré par la vue (aimantation, groupes)."""
 
     def __init__(self, inst_id: str, pixmap, pivot: tuple[int, int], asset_uuid: str = "",
-                 variant: str | None = None):
+                 variant: str | None = None, anchors: tuple = ()):
         super().__init__(pixmap)
+        self.anchors = anchors  # ((x, y), ...) depuis le coin haut-gauche de l'image
         self.inst_id = inst_id
         self.pivot = pivot
         self.asset_uuid = asset_uuid
@@ -83,7 +84,8 @@ class CanvasScene(QGraphicsScene):
         asset = self.library.get(inst.asset_uuid)
         pivot = (asset.pivot_x, asset.pivot_y) if asset else (0, 0)
         item = InstanceItem(inst.id, self.pixmaps.get(asset, inst.variant), pivot,
-                            inst.asset_uuid, inst.variant)
+                            inst.asset_uuid, inst.variant,
+                            tuple((a.x, a.y) for a in asset.anchors) if asset else ())
         item.place_pivot_at(inst.x, inst.y)
         self.addItem(item)
         self.items_by_id[inst.id] = item
@@ -271,9 +273,14 @@ class CanvasScene(QGraphicsScene):
         return cmd
 
     # --- aimantation pendant un glissement -----------------------------------------------
+    def anchor_points(self, item) -> list[tuple[int, int]]:
+        x, y = round(item.pos().x()), round(item.pos().y())
+        return [(x + ax, y + ay) for ax, ay in item.anchors]
+
     def snap_delta(self, start_boxes: list[tuple[int, int, int, int]], primary_pivot: tuple[int, int],
-                   dx: int, dy: int, zoom: float, view_rect: QRectF, selected: set[str]) -> SnapResult:
-        if not (self.snap.grid or self.snap.edges):
+                   dx: int, dy: int, zoom: float, view_rect: QRectF, selected: set[str],
+                   start_points: list[tuple[int, int]] | None = None) -> SnapResult:
+        if not (self.snap.grid or self.snap.edges or self.snap.anchors):
             return SnapResult()
         l = min(b[0] for b in start_boxes) + dx
         t = min(b[1] for b in start_boxes) + dy
@@ -285,7 +292,37 @@ class CanvasScene(QGraphicsScene):
                 if isinstance(it, InstanceItem) and it.isVisible() and it.inst_id not in selected:
                     others.append(it.box())
         pivot = (primary_pivot[0] + dx, primary_pivot[1] + dy)
-        return compute_snap((l, t, r, b), pivot, others, self.snap, zoom)
+        moving_pts, other_pts = [], []
+        if self.snap.anchors and start_points:
+            moving_pts = [(x + dx, y + dy) for x, y in start_points]
+            for it in self.items(view_rect):
+                if isinstance(it, InstanceItem) and it.isVisible() and it.inst_id not in selected:
+                    other_pts += self.anchor_points(it)
+        return compute_snap((l, t, r, b), pivot, others, self.snap, zoom, moving_pts, other_pts)
+
+    # --- variantes -----------------------------------------------------------------------------
+    def set_variant_selected(self, variant: str | None) -> int:
+        """Remplace la variante des objets sélectionnés (position et pivot inchangés).
+        Renvoie le nombre d'objets modifiés ; ceux dont le module n'a pas cette variante sont ignorés."""
+        changes = {}
+        for inst in self.selection_in_model_order():
+            asset = self.library.get(inst.asset_uuid)
+            ok = variant is None or (asset is not None and any(v.name == variant for v in asset.variants))
+            if ok and inst.variant != variant:
+                changes[inst.id] = (inst.variant, variant)
+        if changes:
+            self.history.execute(SetVariant(changes, "Changer de variante"))
+        return len(changes)
+
+    def missing_instances(self) -> list[tuple[str, str]]:
+        """Objets dont la ressource ou l'image manque : [(id, raison)]."""
+        from sbs.services.references import find_missing
+        return find_missing(self.model, self.library)
+
+    def select_missing(self) -> int:
+        ids = [i for i, _ in self.missing_instances() if self.items_by_id.get(i) is not None]
+        self.select_ids([i for i in ids if self.items_by_id[i].isVisible()])
+        return len(ids)
 
     # --- groupes ----------------------------------------------------------------------------
     def selected_units(self) -> list[tuple[str, str]]:

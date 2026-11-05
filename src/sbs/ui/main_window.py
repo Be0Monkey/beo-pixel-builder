@@ -141,6 +141,10 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(self.act_ungroup)
         edit_menu.addAction(QAction("&Propriétés du module…", self, shortcut="F4",
                                     triggered=self.edit_module_properties))
+        self.variant_menu = edit_menu.addMenu("&Variante")
+        self.variant_menu.aboutToShow.connect(self._fill_variant_menu)
+        edit_menu.addAction(QAction("Sélectionner les objets à image &manquante", self,
+                                    triggered=self.check_references))
         edit_menu.addAction(QAction("&Sortir du groupe", self, triggered=self.canvas_scene.exit_group))
         edit_menu.addSeparator()
         edit_menu.addAction(QAction("Mettre &devant", self, shortcut="Ctrl+]",
@@ -158,11 +162,14 @@ class MainWindow(QMainWindow):
         self.act_grid.toggled.connect(self._grid_visible_toggled)
         self.act_snap_grid = QAction("Aimant : grille", self, checkable=True)
         self.act_snap_edges = QAction("Aimant : bords", self, checkable=True)
+        self.act_snap_anchors = QAction("Aimant : ancrages", self, checkable=True)
+        self.act_snap_anchors.toggled.connect(self._snap_changed)
         self.act_snap_grid.toggled.connect(self._snap_changed)
         self.act_snap_edges.toggled.connect(self._snap_changed)
         view_menu.addAction(self.act_grid)
         view_menu.addAction(self.act_snap_grid)
         view_menu.addAction(self.act_snap_edges)
+        view_menu.addAction(self.act_snap_anchors)
         size_menu = view_menu.addMenu("Taille de la grille")
         for px in (8, 16, 32, 64):
             size_menu.addAction(QAction(f"{px} px", self, triggered=lambda _=False, v=px: self._set_grid_size(v)))
@@ -182,7 +189,7 @@ class MainWindow(QMainWindow):
         tb.setObjectName("toolbar_main")
         tb.setMovable(True)
         self.addToolBar(tb)
-        for act in (self.act_grid, self.act_snap_grid, self.act_snap_edges):
+        for act in (self.act_grid, self.act_snap_grid, self.act_snap_edges, self.act_snap_anchors):
             act.setToolTip(act.text().replace("&", "") + " (Alt pendant un glissement : aimant coupé)")
             tb.addAction(act)
         tb.addSeparator()
@@ -320,7 +327,7 @@ class MainWindow(QMainWindow):
         snap = self.canvas_scene.snap
         snap.grid_size = int(self.prefs.get("snap.grid_size", 32) or 32)
         for act, key in ((self.act_grid, "view.grid"), (self.act_snap_grid, "snap.grid"),
-                         (self.act_snap_edges, "snap.edges")):
+                         (self.act_snap_edges, "snap.edges"), (self.act_snap_anchors, "snap.anchors")):
             act.setChecked(bool(self.prefs.get(key, False)))
         self._snap_changed()
 
@@ -331,6 +338,8 @@ class MainWindow(QMainWindow):
     def _snap_changed(self) -> None:
         snap = self.canvas_scene.snap
         snap.grid, snap.edges = self.act_snap_grid.isChecked(), self.act_snap_edges.isChecked()
+        snap.anchors = self.act_snap_anchors.isChecked()
+        self.prefs.set("snap.anchors", snap.anchors)
         self.prefs.set("snap.grid", snap.grid)
         self.prefs.set("snap.edges", snap.edges)
         self._update_status()
@@ -342,7 +351,8 @@ class MainWindow(QMainWindow):
 
     def snap_label(self) -> str:
         parts = [n for n, on in (("Grille", self.canvas_scene.snap.grid),
-                                 ("Bords", self.canvas_scene.snap.edges)) if on]
+                                 ("Bords", self.canvas_scene.snap.edges),
+                                 ("Ancrages", self.canvas_scene.snap.anchors)) if on]
         return "+".join(parts) if parts else "aucun"
 
     def edit_module_properties(self) -> None:
@@ -350,6 +360,27 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Sélectionne un ou plusieurs objets du même module.", 5000)
             return
         ModuleDialog(self.canvas_scene, self).exec()
+
+    def _fill_variant_menu(self) -> None:
+        self.variant_menu.clear()
+        asset = self.canvas_scene.selected_asset()
+        if asset is None or not asset.variants:
+            self.variant_menu.addAction("(aucune variante disponible)").setEnabled(False)
+            return
+        sc = self.canvas_scene
+        self.variant_menu.addAction("(base)", lambda: sc.set_variant_selected(None))
+        for v in asset.variants:
+            self.variant_menu.addAction(v.name, lambda n=v.name: sc.set_variant_selected(n))
+
+    def check_references(self) -> int:
+        missing = self.canvas_scene.missing_instances()
+        n = self.canvas_scene.select_missing()
+        if not missing:
+            self.statusBar().showMessage("Toutes les images sont présentes.", 5000)
+        else:
+            reasons = sorted({r for _, r in missing})
+            self.statusBar().showMessage(f"{n} objet(s) sélectionné(s) : " + " ; ".join(reasons), 8000)
+        return len(missing)
 
     def group_selection(self) -> bool:
         error = self.canvas_scene.group_selected()

@@ -29,3 +29,19 @@ def test_seuil_depend_du_zoom():
     assert compute_snap((41, 0, 57, 32), (45, 32), [other], s, 1.0).dx == 0   # 9 px > seuil de 8
     assert compute_snap((40, 0, 56, 32), (45, 32), [other], s, 4.0).dx == 0   # seuil 2 px
     assert compute_snap((34, 0, 50, 32), (40, 32), [other], s, 4.0).dx == -2  # dans le seuil
+
+
+def test_ancrages_gagnent_et_snap_sur_deux_axes():
+    s = SnapSettings(anchors=True, grid=True)
+    r = compute_snap((0, 0, 16, 20), (3, 17), [], s, 1.0,
+                     moving_points=[(10, 10)], other_points=[(13, 8), (100, 100)])
+    assert (r.dx, r.dy) == (3, -2) and ("v", 13) in r.guides and ("h", 8) in r.guides
+
+
+def test_ancrages_trop_loin_ou_desactives():
+    far = compute_snap((0, 0, 16, 20), (3, 17), [], SnapSettings(anchors=True), 1.0,
+                       moving_points=[(10, 10)], other_points=[(60, 10)])
+    assert (far.dx, far.dy) == (0, 0)
+    off = compute_snap((0, 0, 16, 20), (400, 400), [], SnapSettings(grid=True, grid_size=1000), 1.0,
+                       moving_points=[(10, 10)], other_points=[(12, 10)])
+    assert (off.dx, off.dy) == (0, 0)

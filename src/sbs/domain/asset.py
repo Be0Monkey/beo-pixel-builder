@@ -40,6 +40,8 @@ class Asset:
     extra: dict[str, Any] = field(default_factory=dict)  # champs du kit conservés tels quels
     origin: str = ""  # ex. "kit"
     anchors: tuple[Anchor, ...] = ()
+    favorite: bool = False
+    tags: tuple[str, ...] = ()
 
     def image_for(self, variant: str | None) -> str:
         """Chemin de l'image à afficher pour une variante (base si absente ou inconnue)."""

@@ -30,11 +30,12 @@ class _Drag:
     """État d'un glissement d'objets à la souris."""
 
     def __init__(self, press: QPointF, starts: dict[str, QPointF], boxes: list[tuple[int, int, int, int]],
-                 primary_pivot: tuple[int, int]):
+                 primary_pivot: tuple[int, int], points: list[tuple[int, int]] | None = None):
         self.press = press
         self.starts = starts
         self.boxes = boxes
         self.primary_pivot = primary_pivot
+        self.points = points or []
 
 
 class CanvasView(QGraphicsView):
@@ -161,7 +162,8 @@ class CanvasView(QGraphicsView):
             sc.duplicate_selected(0)
         chosen = [sc.items_by_id[i] for i in sc.selected_ids()]
         self._drag = _Drag(pos, {it.inst_id: QPointF(it.pos()) for it in chosen},
-                           [it.box() for it in chosen], primary_pivot)
+                           [it.box() for it in chosen], primary_pivot,
+                           [p for it in chosen for p in sc.anchor_points(it)])
         return True
 
     def mouseMoveEvent(self, event) -> None:
@@ -187,7 +189,7 @@ class CanvasView(QGraphicsView):
         sc.guides = []
         if not no_snap:  # Alt : aimantation coupée temporairement
             res = sc.snap_delta(d.boxes, d.primary_pivot, dx, dy, self.zoom,
-                                self.visible_scene_rect(), set(d.starts))
+                                self.visible_scene_rect(), set(d.starts), d.points)
             sx, sy, sc.guides = res.dx, res.dy, res.guides
         for inst_id, start in d.starts.items():
             item = sc.items_by_id.get(inst_id)
@@ -254,6 +256,13 @@ class CanvasView(QGraphicsView):
         menu.addAction(QAction("Mettre derrière", menu, triggered=lambda: sc.shift_z_selected(-1)))
         menu.addAction(QAction("Ordre automatique", menu, triggered=sc.reset_z_selected))
         menu.addSeparator()
+        asset = sc.selected_asset()
+        if asset is not None and asset.variants:
+            vm = menu.addMenu("Variante")
+            vm.addAction(QAction("(base)", vm, triggered=lambda: sc.set_variant_selected(None)))
+            for v in asset.variants:
+                vm.addAction(QAction(v.name, vm, triggered=lambda _=False, n=v.name: sc.set_variant_selected(n)))
+            menu.addSeparator()
         menu.addAction(QAction("Grouper", menu, triggered=lambda: sc.group_selected()))
         menu.addAction(QAction("Dégrouper", menu, triggered=sc.ungroup_selected))
         menu.addSeparator()

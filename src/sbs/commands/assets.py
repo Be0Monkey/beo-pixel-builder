@@ -66,3 +66,21 @@ class DetachAndEdit(Command):
 
     def affected_ids(self) -> list[str]:
         return self._ids
+
+
+class SetVariant(Command):
+    def __init__(self, changes: dict[str, tuple[str | None, str | None]], name: str = "Changer de variante"):
+        """changes : id -> (ancienne variante, nouvelle variante)."""
+        self.name = name
+        self.changes = dict(changes)
+
+    def do(self, model: SceneModel) -> None:
+        for i, (_, new) in self.changes.items():
+            model.set_variant(i, new)
+
+    def undo(self, model: SceneModel) -> None:
+        for i, (old, _) in self.changes.items():
+            model.set_variant(i, old)
+
+    def affected_ids(self) -> list[str]:
+        return list(self.changes)

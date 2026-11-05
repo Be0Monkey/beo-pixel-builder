@@ -78,3 +78,11 @@ Comparer point par point Q17–Q51, puis mettre à jour uniquement les exigences
 - Changer le pivot de la source déplace visuellement les sprites (la position d'une instance est celle de son pivot).
 - Bibliothèque v2 (colonne ancrages, migration automatique).
 
+
+## Notes J3b-d (modules, bibliothèque)
+- Aimant ancrages : un ancrage nommé de la sélection se colle sur celui d'un autre module (2 axes), prioritaire sur grille et bords. Seuls les ancrages nommés comptent (pas le pivot).
+- Variantes : clic droit ou Édition > Variante ; position et pivot conservés ; modules sans cette variante ignorés.
+- Bibliothèque v3 : favoris, mots-clés, catégorie modifiable (clic droit sur une miniature) ; filtres favoris et mots-clés exacts.
+- Références manquantes : Édition > Sélectionner les objets à image manquante (ressource absente ou fichier image absent).
+- « Dimensions libres » : non traité, sens à préciser avec l'utilisateur.
+
