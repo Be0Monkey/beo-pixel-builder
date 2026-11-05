@@ -14,7 +14,9 @@ from PySide6.QtWidgets import (
 )
 
 from sbs import __version__
+from sbs.services.library import Library
 from sbs.services.preferences import Preferences
+from sbs.ui.library_panel import LibraryPanel
 
 _B64 = "utf-8"
 
@@ -27,18 +29,20 @@ def _placeholder(text: str) -> QLabel:
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, prefs: Preferences):
+    def __init__(self, prefs: Preferences, library: Library):
         super().__init__()
         self.prefs = prefs
+        self.library = library
         self.setWindowTitle("Sprite Builder Studio")
         self.resize(1400, 850)
 
         self.setCentralWidget(_placeholder("Canevas\n(jalon J1)"))
         self.docks: dict[str, QDockWidget] = {}
+        self.library_panel = LibraryPanel(library)
         self._add_dock("library", "Bibliothèque", Qt.DockWidgetArea.LeftDockWidgetArea,
-                       "Bibliothèque\n(jalon J1)")
+                       self.library_panel)
         self._add_dock("properties", "Propriétés", Qt.DockWidgetArea.RightDockWidgetArea,
-                       "Propriétés\n(jalon J1)")
+                       "Propriétés\n(jalon J1b)")
         self._add_dock("floors", "Étages / Calques", Qt.DockWidgetArea.RightDockWidgetArea,
                        "Étages et calques\n(jalon J2)")
 
@@ -50,10 +54,10 @@ class MainWindow(QMainWindow):
         self._restore_layout()
 
     # --- construction -------------------------------------------------
-    def _add_dock(self, key: str, title: str, area: Qt.DockWidgetArea, text: str) -> None:
+    def _add_dock(self, key: str, title: str, area: Qt.DockWidgetArea, content: str | QWidget) -> None:
         dock = QDockWidget(title, self)
         dock.setObjectName(f"dock_{key}")  # obligatoire pour saveState()
-        dock.setWidget(_placeholder(text))
+        dock.setWidget(_placeholder(content) if isinstance(content, str) else content)
         self.addDockWidget(area, dock)
         self.docks[key] = dock
 

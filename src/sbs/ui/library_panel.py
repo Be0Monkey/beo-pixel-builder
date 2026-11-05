@@ -1,0 +1,179 @@
+"""Panneau Bibliothèque : recherche, catégories, miniatures, import du kit (en arrière-plan)."""
+
+import threading
+from pathlib import Path
+
+from PySide6.QtCore import QObject, QSize, Qt, QThread, Signal, Slot
+from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtWidgets import (
+    QComboBox,
+    QFileDialog,
+    QLabel,
+    QLineEdit,
+    QListView,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QProgressDialog,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+from sbs.services.kit_importer import ImportReport, KitError, import_kit
+from sbs.services.library import Library
+
+ASSET_ROLE = Qt.ItemDataRole.UserRole
+
+
+class ImportWorker(QObject):
+    progress = Signal(int, int)
+    finished = Signal(object)  # ImportReport ou message d'erreur (str)
+
+    def __init__(self, library: Library, kit_dir: Path):
+        super().__init__()
+        self.library, self.kit_dir = library, kit_dir
+        self.cancel_event = threading.Event()
+
+    def run(self) -> None:
+        try:
+            result = import_kit(
+                self.library, self.kit_dir,
+                progress=lambda i, n: self.progress.emit(i, n),
+                cancelled=self.cancel_event.is_set,
+            )
+        except KitError as exc:
+            result = str(exc)
+        self.finished.emit(result)
+
+
+class LibraryPanel(QWidget):
+    asset_activated = Signal(str)  # uuid (double-clic), utilisé par le canvas au jalon J1b
+
+    def __init__(self, library: Library, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.library = library
+        self._thread: QThread | None = None
+        self._worker: ImportWorker | None = None
+        self._dialog: QProgressDialog | None = None
+
+        self.search = QLineEdit(placeholderText="Rechercher…", clearButtonEnabled=True)
+        self.category = QComboBox()
+        self.list = QListWidget()
+        self.list.setViewMode(QListView.ViewMode.IconMode)
+        self.list.setResizeMode(QListView.ResizeMode.Adjust)
+        self.list.setMovement(QListView.Movement.Static)
+        self.list.setIconSize(QSize(96, 96))
+        self.list.setGridSize(QSize(116, 128))
+        self.list.setWordWrap(True)
+        self.list.setUniformItemSizes(True)
+        self.count_label = QLabel()
+        self.import_button = QPushButton("Importer le kit de sprites…")
+
+        lay = QVBoxLayout(self)
+        lay.addWidget(self.search)
+        lay.addWidget(self.category)
+        lay.addWidget(self.list, 1)
+        lay.addWidget(self.count_label)
+        lay.addWidget(self.import_button)
+
+        self.search.textChanged.connect(self.refresh)
+        self.category.currentIndexChanged.connect(self.refresh)
+        self.import_button.clicked.connect(self.choose_and_import)
+        self.list.itemDoubleClicked.connect(lambda it: self.asset_activated.emit(it.data(ASSET_ROLE)))
+        self.reload_categories()
+        self.refresh()
+
+    # --- affichage ------------------------------------------------------
+    def reload_categories(self) -> None:
+        current = self.category.currentData()
+        self.category.blockSignals(True)
+        self.category.clear()
+        self.category.addItem("Toutes les catégories", None)
+        for c in self.library.categories():
+            self.category.addItem(c, c)
+        idx = self.category.findData(current)
+        self.category.setCurrentIndex(max(0, idx))
+        self.category.blockSignals(False)
+
+    def refresh(self) -> None:
+        assets = self.library.list_assets(self.search.text(), self.category.currentData())
+        self.list.clear()
+        for a in assets:
+            item = QListWidgetItem(a.name)
+            thumb = self.library.thumbnail_path(a.uuid)
+            if thumb.exists():
+                item.setIcon(QIcon(QPixmap(str(thumb))))
+            item.setData(ASSET_ROLE, a.uuid)
+            tip = f"{a.name}\n{a.description}\n{a.width}×{a.height} px · pivot ({a.pivot_x}, {a.pivot_y})"
+            if a.variants:
+                tip += "\nVariantes : " + ", ".join(v.name for v in a.variants)
+            item.setToolTip(tip)
+            self.list.addItem(item)
+        total = self.library.count()
+        if total == 0:
+            self.count_label.setText("Bibliothèque vide : importe ton kit de sprites.")
+        else:
+            self.count_label.setText(f"{len(assets)} affiché(s) sur {total}")
+
+    # --- import ---------------------------------------------------------
+    def choose_and_import(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Choisir le dossier du kit de sprites")
+        if folder:
+            self.start_import(Path(folder))
+
+    def start_import(self, kit_dir: Path) -> None:
+        if self._thread is not None:
+            return
+        self.import_button.setEnabled(False)
+        dialog = QProgressDialog("Import du kit…", "Annuler", 0, 0, self)
+        dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        dialog.setMinimumDuration(0)
+        worker = ImportWorker(self.library, kit_dir)
+        thread = QThread(self)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        # Slots du panneau (objet du thread GUI) : les signaux du worker sont mis en file
+        # et exécutés dans le thread de l'interface. Une lambda s'exécuterait dans le thread
+        # du worker (interface touchée hors thread GUI, et thread.wait() sur lui-même).
+        worker.progress.connect(self._on_progress)
+        worker.finished.connect(self._on_finished)
+        dialog.canceled.connect(worker.cancel_event.set)
+        self._thread, self._worker, self._dialog = thread, worker, dialog
+        thread.start()
+
+    @Slot(int, int)
+    def _on_progress(self, i: int, n: int) -> None:
+        if self._dialog is not None:
+            self._dialog.setMaximum(n)
+            self._dialog.setValue(i)
+
+    @Slot(object)
+    def _on_finished(self, result: object) -> None:
+        if self._dialog is not None:
+            self._dialog.close()
+        thread = self._thread
+        if thread is not None:
+            thread.quit()
+            thread.wait()
+        self._thread = self._worker = self._dialog = None
+        self.import_button.setEnabled(True)
+        self.reload_categories()
+        self.refresh()
+        if isinstance(result, str):
+            QMessageBox.warning(self, "Import impossible", result)
+            return
+        self._show_report(result)
+
+    def _show_report(self, r: ImportReport) -> None:
+        lines = [f"{r.imported} module(s) importé(s)."]
+        if r.already_present:
+            lines.append(f"{r.already_present} déjà présent(s) (ignorés, aucun doublon).")
+        if r.cancelled:
+            lines.append("Import annulé : ce qui est déjà importé est conservé.")
+        if r.errors:
+            lines.append(f"{len(r.errors)} erreur(s) :\n- " + "\n- ".join(r.errors[:10]))
+        if r.warnings:
+            lines.append(f"{len(r.warnings)} avertissement(s).")
+        box = QMessageBox.warning if r.errors else QMessageBox.information
+        box(self, "Import du kit", "\n".join(lines))
