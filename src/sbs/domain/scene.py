@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 
+from sbs.domain.animation import Animation, validate_animation
 from sbs.domain.ids import new_id
 
 MAX_GROUP_DEPTH = 3
@@ -102,6 +103,7 @@ class SceneModel:
         self._instances: dict[str, Instance] = {}  # l'ordre du dict = ordre d'insertion
         self._floors: list[Floor] = default_floors()
         self._groups: dict[str, Group] = {}
+        self._animations: dict[str, Animation] = {}
         self._listeners: list[Callable[[], None]] = []
         self._batch_depth = 0
         self._pending = False
@@ -152,6 +154,21 @@ class SceneModel:
     @property
     def groups(self) -> dict[str, Group]:
         return self._groups
+
+    @property
+    def animations(self) -> dict[str, Animation]:
+        return self._animations  # lecture seule : on modifie via set_animations()
+
+    def animations_copy(self) -> dict[str, Animation]:
+        return deepcopy(self._animations)
+
+    def set_animations(self, animations: dict[str, Animation]) -> None:
+        for key, a in animations.items():
+            if key != a.id:
+                raise ValueError("identifiant d'animation incohérent")
+            validate_animation(a)
+        self._animations = deepcopy(animations)
+        self._notify()
 
     def floors_copy(self) -> list[Floor]:
         return deepcopy(self._floors)
@@ -296,7 +313,8 @@ class SceneModel:
 
     # --- remplacement complet (ouverture d'un projet) -----------------------------------------
     def replace(self, instances: list[Instance], floors: list[Floor] | None = None,
-                groups: dict[str, Group] | None = None) -> None:
+                groups: dict[str, Group] | None = None,
+                animations: dict[str, Animation] | None = None) -> None:
         new_floors = deepcopy(floors) if floors is not None else default_floors()
         validate_floors(new_floors)
         new_groups = deepcopy(groups) if groups is not None else {}
@@ -313,5 +331,11 @@ class SceneModel:
                 raise ValueError("un objet référence un étage ou un calque inconnu")
             new[inst.id] = inst
         validate_grouping(new_groups, {i.id: i.group_id for i in new.values()})
+        new_anims = deepcopy(animations) if animations is not None else {}
+        for key, a in new_anims.items():
+            if key != a.id:
+                raise ValueError("identifiant d'animation incohérent")
+            validate_animation(a)
         self._instances, self._floors, self._groups = new, new_floors, new_groups
+        self._animations = new_anims
         self._notify()

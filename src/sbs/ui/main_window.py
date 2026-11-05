@@ -39,7 +39,9 @@ from sbs.domain.pixel import PixelDoc
 from sbs.domain.pixel_edit import PixelEditor, check_color
 from sbs.services.library import LibraryError
 from sbs.services.pixel_io import load_doc, png_bytes, save_layers
+from sbs.ui.animation_dialog import AnimationDialog
 from sbs.ui.module_dialog import ModuleDialog
+from sbs.ui.repeat_dialog import RepeatDialog
 from sbs.ui.pixel_editor import PixelEditorDialog
 
 _B64 = "utf-8"
@@ -145,6 +147,8 @@ class MainWindow(QMainWindow):
                                    triggered=self.canvas_scene.ungroup_selected)
         edit_menu.addAction(self.act_group)
         edit_menu.addAction(self.act_ungroup)
+        edit_menu.addAction(QAction("&Répéter…", self, shortcut="Ctrl+R", triggered=self.open_repeat))
+        edit_menu.addAction(QAction("&Animations…", self, shortcut="F7", triggered=self.open_animations))
         edit_menu.addAction(QAction("&Modifier les pixels…", self, shortcut="F6",
                                     triggered=self.edit_pixels))
         edit_menu.addAction(QAction("&Propriétés du module…", self, shortcut="F4",
@@ -261,8 +265,9 @@ class MainWindow(QMainWindow):
         self._apply(ProjectMeta(), [], None)
         return True
 
-    def _apply(self, meta: ProjectMeta, instances, path: Path | None, floors=None, groups=None) -> None:
-        self.scene_model.replace(instances, floors, groups)  # la scène se synchronise sur le modèle
+    def _apply(self, meta: ProjectMeta, instances, path: Path | None, floors=None, groups=None,
+               animations=None) -> None:
+        self.scene_model.replace(instances, floors, groups, animations)  # la scène se synchronise sur le modèle
         self.history.clear()
         self.meta, self.path = meta, path
         self._update_title()
@@ -284,7 +289,8 @@ class MainWindow(QMainWindow):
         except ProjectError as exc:
             QMessageBox.critical(self, "Ouverture impossible", str(exc))
             return False
-        self._apply(result.meta, result.instances, Path(path), result.floors, result.groups)
+        self._apply(result.meta, result.instances, Path(path), result.floors, result.groups,
+                    result.animations)
         notes = []
         if result.missing_assets:
             notes.append(f"{len(result.missing_assets)} image(s) absente(s) de la bibliothèque : "
@@ -450,6 +456,23 @@ class MainWindow(QMainWindow):
         self.library_panel.refresh()
         self.canvas.add_asset_at_center(asset.uuid)
         return True
+
+    # --- répétition et animations ---------------------------------------------------------------
+    def open_repeat(self) -> bool:
+        sel = self.canvas_scene.selection_in_model_order()
+        if sel:
+            uuid, variant, origin = sel[0].asset_uuid, sel[0].variant, (sel[0].x + 32, sel[0].y)
+        else:
+            uuid, variant, origin = self.library_panel.current_asset_uuid(), None, self.canvas.visible_center()
+        if not uuid or self.library.get(uuid) is None:
+            self.statusBar().showMessage("Sélectionne un objet ou un module de la bibliothèque à répéter.", 5000)
+            return False
+        self._repeat_dialog = RepeatDialog(self.canvas_scene, uuid, variant, origin, self)
+        self._repeat_dialog.show()  # non bloquant : l'aperçu reste visible sur le canevas
+        return True
+
+    def open_animations(self) -> None:
+        AnimationDialog(self.canvas_scene, self.library_panel.current_asset_uuid, self).exec()
 
     def edit_module_properties(self) -> None:
         if self.canvas_scene.selected_asset() is None:

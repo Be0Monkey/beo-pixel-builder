@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from sbs.domain.animation import Animation, Frame, validate_animation
 from sbs.domain.ids import is_valid_id, new_id
 from sbs.domain.scene import (
     Floor,
@@ -50,7 +51,16 @@ def _migrate_1_to_2(doc: dict) -> dict:
     return doc
 
 
-MIGRATIONS: dict[int, Any] = {1: _migrate_1_to_2}
+def _migrate_2_to_3(doc: dict) -> dict:
+    """v2 -> v3 : ajoute la liste des animations (vide)."""
+    for sc in doc.get("scenes", []) if isinstance(doc.get("scenes"), list) else []:
+        if isinstance(sc, dict):
+            sc.setdefault("animations", [])
+    doc["schema_version"] = 3
+    return doc
+
+
+MIGRATIONS: dict[int, Any] = {1: _migrate_1_to_2, 2: _migrate_2_to_3}
 
 
 class ProjectError(Exception):
@@ -78,6 +88,7 @@ class LoadResult:
     instances: list[Instance]
     floors: list[Floor]
     groups: dict[str, Group]
+    animations: dict[str, Animation]
     missing_assets: list[str]  # uuid absents de la bibliothèque (instances conservées)
     remapped: int  # instances rattachées à un autre uuid grâce à library_refs
 
@@ -87,7 +98,7 @@ def save_project(path: Path, meta: ProjectMeta, model: SceneModel, library: Libr
     path = Path(path)
     instances = model.all()
     refs = dict(meta.library_refs)  # on garde les références des images absentes
-    used = {i.asset_uuid for i in instances}
+    used = {i.asset_uuid for i in instances} | {f.asset_uuid for a in model.animations.values() for f in a.frames}
     for uuid in used:
         asset = library.get(uuid)
         if asset is not None:
@@ -115,6 +126,12 @@ def save_project(path: Path, meta: ProjectMeta, model: SceneModel, library: Libr
             ],
             "groups": [{"id": g.id, "name": g.name, "parent_id": g.parent_id}
                        for g in model.groups.values()],
+            "animations": [
+                {"id": a.id, "name": a.name, "fps": a.fps, "loop": a.loop,
+                 "frames": [{"asset_uuid": f.asset_uuid, "variant": f.variant, "hold": f.hold}
+                            for f in a.frames]}
+                for a in model.animations.values()
+            ],
             "instances": [
                 {"id": i.id, "asset_uuid": i.asset_uuid, "x": i.x, "y": i.y, "z_manual": i.z_manual,
                  "variant": i.variant, "floor_id": i.floor_id, "layer_id": i.layer_id,
@@ -234,6 +251,19 @@ def load_project(path: Path, library: Library) -> LoadResult:
     seen: set[str] = set()
     missing: list[str] = []
     remapped = 0
+
+    def resolve(asset_uuid: str) -> str:
+        """Rattache un module à la bibliothèque de cet ordinateur (par origine + identifiant du kit)."""
+        nonlocal remapped
+        if library.get(asset_uuid) is None:
+            ref = refs.get(asset_uuid)
+            found = library.find_by_source(ref["origin"], ref["source_id"]) if ref else None
+            if found is not None:
+                remapped += 1
+                return found.uuid
+            if asset_uuid not in missing:
+                missing.append(asset_uuid)  # conservé : repère rose
+        return asset_uuid
     for n, d in enumerate(_need(scene, "instances", list, "scène")):
         if not isinstance(d, dict):
             raise ProjectError(f"projet invalide : objet n°{n + 1} illisible")
@@ -257,19 +287,32 @@ def load_project(path: Path, library: Library) -> LoadResult:
         if group_id is not None and not isinstance(group_id, str):
             raise ProjectError(f"projet invalide : « group_id » incorrect ({where})")
 
-        if library.get(asset_uuid) is None:
-            ref = refs.get(asset_uuid)
-            found = library.find_by_source(ref["origin"], ref["source_id"]) if ref else None
-            if found is not None:
-                asset_uuid, remapped = found.uuid, remapped + 1
-            elif asset_uuid not in missing:
-                missing.append(asset_uuid)  # l'instance est conservée (repère rose)
+        asset_uuid = resolve(asset_uuid)
         instances.append(Instance(inst_id, asset_uuid, x, y, z, variant, floor_id, layer_id, group_id))
 
     try:
         validate_grouping(groups, {i.id: i.group_id for i in instances})
     except ValueError as exc:
         raise ProjectError(f"projet invalide : {exc}") from exc
+
+    animations: dict[str, Animation] = {}
+    for n, d in enumerate(scene.get("animations", [])):
+        where = f"animation n°{n + 1}"
+        if not isinstance(d, dict) or not isinstance(d.get("frames"), list):
+            raise ProjectError(f"projet invalide : {where} illisible")
+        frames = []
+        for fd in d["frames"]:
+            if not isinstance(fd, dict) or not isinstance(fd.get("asset_uuid"), str):
+                raise ProjectError(f"projet invalide : image d'{where} illisible")
+            frames.append(Frame(resolve(fd["asset_uuid"]), fd.get("variant"), fd.get("hold", 1)))
+        anim = Animation(d.get("id"), d.get("name"), d.get("fps", 8), d.get("loop", True), frames)
+        try:
+            validate_animation(anim)
+        except ValueError as exc:
+            raise ProjectError(f"projet invalide : {where} : {exc}") from exc
+        if anim.id in animations:
+            raise ProjectError(f"projet invalide : identifiant d'animation en double ({anim.id})")
+        animations[anim.id] = anim
 
     meta = ProjectMeta(
         id=doc["id"] if isinstance(doc.get("id"), str) and is_valid_id(doc.get("id")) else new_id(),
@@ -280,4 +323,4 @@ def load_project(path: Path, library: Library) -> LoadResult:
         updated_at=str(doc.get("updated_at") or _now()),
         library_refs=refs,
     )
-    return LoadResult(meta, instances, floors, groups, missing, remapped)
+    return LoadResult(meta, instances, floors, groups, animations, missing, remapped)

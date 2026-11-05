@@ -93,3 +93,10 @@ Comparer point par point Q17–Q51, puis mettre à jour uniquement les exigences
 - La taille du sprite ne change pas (le pivot et les ancrages en dépendent). Calques gardés dans calques_<variante>.json à côté de l'image, ignorés si l'image a changé.
 - Nouveau sprite : Fichier > Nouveau sprite (module local, pivot bas-centre).
 
+
+## Notes J5 (animation et répétition)
+- Animations : images = modules (+ variante), durée en tops, cadence 1-60, boucle ; stockées dans le projet (format v3, migration auto).
+- Planche : export PNG + .json voisin (pivots alignés dans chaque case) ; import avec case saisie ou lue dans le .json ; un module local par image.
+- Répétition : ligne, grille, tracé (polyligne ou courbe lissée Catmull-Rom), aperçu fantôme, 2000 objets max, une seule annulation.
+- Pas encore : animation jouée sur le canevas, orientation des copies.
+

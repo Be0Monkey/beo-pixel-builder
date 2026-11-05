@@ -7,6 +7,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsPixmapItem, QGraphicsScene
 
 from sbs.canvas.pixmaps import PixmapCache
+from sbs.commands.animations import SetAnimations
 from sbs.commands.assets import (
     DetachAndEdit,
     DetachAndReplaceImage,
@@ -24,6 +25,7 @@ from sbs.commands.structure import (
 )
 from sbs.domain import groups as G
 from sbs.domain.ids import new_id
+from sbs.domain.repeat import MAX_COUNT
 from sbs.domain.scene import Group, Instance, SceneModel, validate_grouping
 from sbs.domain.snapping import SnapResult, SnapSettings, compute_snap
 from sbs.services.clipboard_codec import decode_instances, encode_instances
@@ -74,6 +76,7 @@ class CanvasScene(QGraphicsScene):
         self.active_floor_id = ""
         self.active_layer_id = ""
         self._context_listeners: list[Callable[[], None]] = []
+        self._ghosts: list[QGraphicsPixmapItem] = []
         self.setSceneRect(-SCENE_HALF, -SCENE_HALF, 2 * SCENE_HALF, 2 * SCENE_HALF)
         self.model.add_listener(self.sync)
         self.library.add_listener(self.refresh_asset)
@@ -600,3 +603,62 @@ class CanvasScene(QGraphicsScene):
             return str(exc), None
         self.select_ids(ids)
         return None, (cmd.clone if scope == "instance" else asset.uuid)
+
+    # --- répétition : aperçu puis validation ------------------------------------------------
+    PREVIEW_LIMIT = 500
+
+    def show_preview(self, asset_uuid: str, variant: str | None, positions: list[tuple[int, int]]) -> int:
+        """Affiche des images fantômes aux positions (rien n'est ajouté au projet). Renvoie leur nombre."""
+        self.clear_preview()
+        asset = self.library.get(asset_uuid)
+        if asset is None:
+            return 0
+        pm = self.pixmaps.get(asset, variant)
+        for x, y in positions[: self.PREVIEW_LIMIT]:
+            g = QGraphicsPixmapItem(pm)
+            g.setTransformationMode(Qt.TransformationMode.FastTransformation)
+            g.setOpacity(0.5)
+            g.setZValue(1e9)
+            g.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+            g.setPos(x - asset.pivot_x, y - asset.pivot_y)
+            self.addItem(g)
+            self._ghosts.append(g)
+        return len(self._ghosts)
+
+    def clear_preview(self) -> None:
+        for g in self._ghosts:
+            self.removeItem(g)
+        self._ghosts = []
+
+    def place_repeated(self, asset_uuid: str, variant: str | None, positions: list[tuple[int, int]],
+                       group: bool = False) -> str | None:
+        """Place d'un coup toutes les copies (une seule commande annulable). None si fait, sinon une erreur."""
+        asset = self.library.get(asset_uuid)
+        if asset is None:
+            return "Ce module est absent de la bibliothèque."
+        if not positions:
+            return "Aucune position à placer."
+        if len(positions) > MAX_COUNT:
+            return f"{MAX_COUNT} objets au maximum."
+        if variant is not None and not any(v.name == variant for v in asset.variants):
+            return f"variante inconnue : {variant}"
+        self._fix_active_target()
+        gid, groups = None, []
+        if group:
+            gid = new_id()
+            groups = [Group(gid, "Répétition", self.entered_group)]
+        owner = gid if gid else self.entered_group
+        insts = [Instance(new_id(), asset_uuid, int(x), int(y), variant=variant, floor_id=self.active_floor_id,
+                          layer_id=self.active_layer_id, group_id=owner) for x, y in positions]
+        self.clear_preview()
+        self.history.execute(PlaceInstancesWithGroups(insts, groups, f"Répéter {len(insts)} × {asset.name}"))
+        self.select_ids([i.id for i in insts])
+        return None
+
+    # --- animations ---------------------------------------------------------------------------------
+    def set_animations(self, new: dict, name: str = "Modifier les animations") -> str | None:
+        try:
+            self.history.execute(SetAnimations(self.model.animations_copy(), new, name))
+        except ValueError as exc:
+            return str(exc)
+        return None

@@ -154,6 +154,10 @@ class LibraryPanel(QWidget):
         else:
             self.count_label.setText(f"{len(assets)} affiché(s) sur {total}")
 
+    def current_asset_uuid(self) -> str | None:
+        item = self.list.currentItem()
+        return item.data(ASSET_ROLE) if item else None
+
     # --- organisation (clic droit) -------------------------------------------------------
     def _context_menu(self, pos) -> None:
         item = self.list.itemAt(pos)
