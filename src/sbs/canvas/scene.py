@@ -70,6 +70,7 @@ class CanvasScene(QGraphicsScene):
         self.history = history or History(model)
         self.pixmaps = PixmapCache(library)
         self.items_by_id: dict[str, InstanceItem] = {}
+        self._asset_memo: dict[str, object] | None = None  # valable le temps d'une synchronisation
         self.snap = SnapSettings()
         self.guides: list[tuple[str, int]] = []
         self.entered_group: str | None = None
@@ -89,8 +90,17 @@ class CanvasScene(QGraphicsScene):
             fn()
 
     # --- synchronisation avec le modèle ----------------------------------------------
+    def _asset(self, asset_uuid: str):
+        """Module de la bibliothèque ; mémorisé pendant une synchronisation (évite une requête par objet)."""
+        memo = self._asset_memo
+        if memo is None:
+            return self.library.get(asset_uuid)
+        if asset_uuid not in memo:
+            memo[asset_uuid] = self.library.get(asset_uuid)
+        return memo[asset_uuid]
+
     def _make_item(self, inst: Instance) -> InstanceItem:
-        asset = self.library.get(inst.asset_uuid)
+        asset = self._asset(inst.asset_uuid)
         pivot = (asset.pivot_x, asset.pivot_y) if asset else (0, 0)
         item = InstanceItem(inst.id, self.pixmaps.get(asset, inst.variant), pivot,
                             inst.asset_uuid, inst.variant,
@@ -110,6 +120,13 @@ class CanvasScene(QGraphicsScene):
 
     def sync(self) -> None:
         """Aligne les items sur le modèle (ajouts, suppressions, positions, état, ordre)."""
+        self._asset_memo = {}
+        try:
+            self._sync()
+        finally:
+            self._asset_memo = None
+
+    def _sync(self) -> None:
         instances = self.model.all()
         present = {i.id for i in instances}
         if self.entered_group is not None and self.entered_group not in self.model.groups:
@@ -229,7 +246,8 @@ class CanvasScene(QGraphicsScene):
         name = f"Supprimer {len(ids)} objet(s)"
         cmds = [RemoveInstances(ids, name)]
         groups, group_of = self.model.grouping_snapshot()
-        remaining = {k: v for k, v in group_of.items() if k not in set(ids)}
+        gone = set(ids)
+        remaining = {k: v for k, v in group_of.items() if k not in gone}
         pruned = G.prune_empty(groups, remaining)
         if len(pruned) != len(groups):  # des groupes se vident : on les retire aussi
             cmds.append(SetGrouping(pruned, remaining, name))
@@ -427,7 +445,8 @@ class CanvasScene(QGraphicsScene):
             ids = list(remove_ids)
             cmds = [RemoveInstances(ids, name)]
             groups, group_of = self.model.grouping_snapshot()
-            remaining = {k: v for k, v in group_of.items() if k not in set(ids)}
+            gone = set(ids)
+            remaining = {k: v for k, v in group_of.items() if k not in gone}
             pruned = G.prune_empty(groups, remaining)
             if len(pruned) != len(groups):
                 cmds.append(SetGrouping(pruned, remaining, name))

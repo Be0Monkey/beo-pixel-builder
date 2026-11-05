@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from sbs.canvas.mime import ASSET_MIME
+from sbs.services.batch_import import FORMATS, BatchReport, collect_files, import_images
 from sbs.services.kit_importer import ImportReport, KitError, import_kit
 from sbs.services.library import Library, LibraryError
 
@@ -64,6 +65,32 @@ class ImportWorker(QObject):
         self.finished.emit(result)
 
 
+class ImagesWorker(QObject):
+    """Import d'images (fichiers ou dossiers) en arrière-plan, avec progression et annulation."""
+
+    progress = Signal(int, int)
+    finished = Signal(object)  # BatchReport ou message d'erreur (str)
+
+    def __init__(self, library: Library, paths: list[Path], category: str):
+        super().__init__()
+        self.library, self.paths, self.category = library, paths, category
+        self.cancel_event = threading.Event()
+
+    def run(self) -> None:
+        try:
+            files, ignored = collect_files(self.paths)
+            if not files:
+                self.finished.emit("Aucune image PNG, GIF, BMP ou WebP trouvée.")
+                return
+            report = import_images(self.library, files, self.category,
+                                   progress=lambda i, n: self.progress.emit(i, n),
+                                   cancelled=self.cancel_event.is_set)
+            report.ignored = ignored
+            self.finished.emit(report)
+        except Exception as exc:  # jamais de thread qui meurt sans prévenir
+            self.finished.emit(f"Import interrompu : {exc}")
+
+
 class LibraryPanel(QWidget):
     asset_activated = Signal(str)  # uuid (double-clic), utilisé par le canvas au jalon J1b
 
@@ -90,6 +117,11 @@ class LibraryPanel(QWidget):
         self.list.setUniformItemSizes(True)
         self.count_label = QLabel()
         self.import_button = QPushButton("Importer le kit de sprites…")
+        self.images_button = QPushButton("Importer des images…")
+        self.images_menu = QMenu(self.images_button)
+        self.images_menu.addAction("Choisir des fichiers…", self.choose_images)
+        self.images_menu.addAction("Choisir un dossier (sous-dossiers inclus)…", self.choose_images_folder)
+        self.images_button.setMenu(self.images_menu)
 
         lay = QVBoxLayout(self)
         lay.addWidget(self.search)
@@ -99,6 +131,7 @@ class LibraryPanel(QWidget):
         lay.addWidget(self.list, 1)
         lay.addWidget(self.count_label)
         lay.addWidget(self.import_button)
+        lay.addWidget(self.images_button)
 
         self.search.textChanged.connect(self.refresh)
         self.category.currentIndexChanged.connect(self.refresh)
@@ -215,14 +248,33 @@ class LibraryPanel(QWidget):
         if folder:
             self.start_import(Path(folder))
 
+    def choose_images(self) -> None:
+        exts = " ".join(f"*{e}" for e in FORMATS)
+        files, _ = QFileDialog.getOpenFileNames(self, "Choisir des images", "", f"Images ({exts})")
+        if files:
+            self.start_images_import([Path(f) for f in files])
+
+    def choose_images_folder(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Choisir un dossier d'images")
+        if folder:
+            self.start_images_import([Path(folder)])
+
+    def start_images_import(self, paths: list[Path], category: str = "importé") -> None:
+        if self._thread is not None:
+            return
+        self._start(ImagesWorker(self.library, [Path(p) for p in paths], category), "Import des images…")
+
     def start_import(self, kit_dir: Path) -> None:
         if self._thread is not None:
             return
+        self._start(ImportWorker(self.library, kit_dir), "Import du kit…")
+
+    def _start(self, worker, title: str) -> None:
         self.import_button.setEnabled(False)
-        dialog = QProgressDialog("Import du kit…", "Annuler", 0, 0, self)
+        self.images_button.setEnabled(False)
+        dialog = QProgressDialog(title, "Annuler", 0, 0, self)
         dialog.setWindowModality(Qt.WindowModality.WindowModal)
         dialog.setMinimumDuration(0)
-        worker = ImportWorker(self.library, kit_dir)
         thread = QThread(self)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
@@ -251,12 +303,29 @@ class LibraryPanel(QWidget):
             thread.wait()
         self._thread = self._worker = self._dialog = None
         self.import_button.setEnabled(True)
+        self.images_button.setEnabled(True)
         self.reload_categories()
         self.refresh()
         if isinstance(result, str):
             QMessageBox.warning(self, "Import impossible", result)
             return
-        self._show_report(result)
+        if isinstance(result, BatchReport):
+            self._show_batch_report(result)
+        else:
+            self._show_report(result)
+
+    def _show_batch_report(self, r: BatchReport) -> None:
+        lines = [f"{len(r.imported)} image(s) importée(s)."]
+        if r.duplicates:
+            lines.append(f"{r.duplicates} déjà présente(s) (même contenu : ignorées, aucun doublon).")
+        if r.ignored:
+            lines.append(f"{r.ignored} fichier(s) d'un autre format ignoré(s).")
+        if r.cancelled:
+            lines.append("Import annulé : ce qui est déjà importé est conservé.")
+        if r.errors:
+            lines.append(f"{len(r.errors)} erreur(s) :\n- " + "\n- ".join(r.errors[:10]))
+        box = QMessageBox.warning if r.errors else QMessageBox.information
+        box(self, "Import d'images", "\n".join(lines))
 
     def _show_report(self, r: ImportReport) -> None:
         lines = [f"{r.imported} module(s) importé(s)."]

@@ -29,7 +29,8 @@ class RemoveInstances(Command):
         self._removed: list[tuple[int, Instance]] = []
 
     def do(self, model: SceneModel) -> None:
-        self._removed = [(model.index_of(i), replace(model.get(i))) for i in self._ids if i in model]
+        rank = model.index_map()
+        self._removed = [(rank[i], replace(model.get(i))) for i in self._ids if i in rank]
         model.remove([inst.id for _, inst in self._removed])
 
     def undo(self, model: SceneModel) -> None:

@@ -1,9 +1,9 @@
 [project]
 name = "sprite-builder-studio"
-version = "0.0.1"
+version = "0.1.0"
 description = "Atelier de construction 2D modulaire (pixel art, vue 3/4) - local, sans IA"
 requires-python = ">=3.12"
-dependencies = ["PySide6>=6.7", "Pillow>=10"]
+dependencies = ["PySide6>=6.7", "Pillow>=10", "numpy>=1.26"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff"]
@@ -17,6 +17,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+sbs = ["resources/*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

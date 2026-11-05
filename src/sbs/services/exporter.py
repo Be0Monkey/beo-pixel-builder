@@ -45,15 +45,24 @@ def render_scene(
         raise ExportError(f"facteur d'agrandissement invalide (entier de 1 à {MAX_SCALE})")
     placed: list[tuple[Image.Image, int, int]] = []
     skipped: list[str] = []
+    assets: dict[str, object] = {}  # un module est lu une seule fois, même utilisé 1000 fois
+    images: dict[Path, Image.Image | None] = {}
     for inst in instances:
-        asset = library.get(inst.asset_uuid)
+        if inst.asset_uuid not in assets:
+            assets[inst.asset_uuid] = library.get(inst.asset_uuid)
+        asset = assets[inst.asset_uuid]
         if asset is None:
             skipped.append(inst.asset_uuid)
             continue
-        try:
-            with Image.open(library.abs_path(asset.image_for(inst.variant))) as im:
-                img = im.convert("RGBA")
-        except (OSError, UnidentifiedImageError):
+        path = library.abs_path(asset.image_for(inst.variant))
+        if path not in images:
+            try:
+                with Image.open(path) as im:
+                    images[path] = im.convert("RGBA")
+            except (OSError, UnidentifiedImageError):
+                images[path] = None
+        img = images[path]
+        if img is None:
             skipped.append(asset.source_id)
             continue
         placed.append((img, inst.x - asset.pivot_x, inst.y - asset.pivot_y))

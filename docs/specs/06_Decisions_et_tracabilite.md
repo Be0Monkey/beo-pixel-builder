@@ -82,3 +82,12 @@ Comparer point par point Q17–Q51, puis mettre à jour uniquement les exigences
 - Godot 4 : Node2D par étage et par calque, Sprite2D par objet dans l'ordre de dessin, `centered=false`, `offset=-pivot`, filtre nearest ; masqué → `visible=false` ; verrouillé → `_edit_lock_` ; groupes en métadonnées. Pas d'AnimatedSprite (animations en JSON / spritesheet).
 - Validation réelle : test headless avec Godot 4.7.2 (`SBS_GODOT` pour changer le chemin) comparant positions, ordre, transparence, visibilité, filtre.
 - Format projet inchangé (v3).
+
+## Notes J7 — Stabilisation / ergonomie
+- **Sauvegardes versionnées** (`services/backups.py`) : à chaque enregistrement réussi, copie datée dans `<données>/backups/<id projet>/` (10 gardées par défaut, doublons exacts ignorés, élagage automatique). Une ancienne version s'ouvre comme copie non enregistrée (nouvel identifiant) : le projet courant n'est jamais touché.
+- **Récupération après arrêt brutal** : autosave toutes les 2 min (réglable, 0 = désactivée) dans `<données>/recovery/`, seulement si le projet est modifié ; effacée à l'enregistrement et à la fermeture normale. Écritures atomiques en deux fichiers (projet puis fiche). Copie abîmée → renommée `.abimee`, jamais reproposée. Hypothèse : une seule instance de l'application.
+- **Import par lot** (`services/batch_import.py`) : PNG copié tel quel ; GIF/BMP/WebP convertis en PNG RGBA (1re image) ; limite 4096 px/côté lue dans l'en-tête avant décodage ; doublon = même SHA-256 d'un module « local » ; pivot au milieu du bas ; erreurs par fichier sans arrêter le lot ; arrière-plan, progression, annulation.
+- **Options / raccourcis / espaces de travail** : raccourcis identifiés par menu + libellé (ou nom d'objet pour Annuler/Rétablir), surcharges stockées dans les préférences, conflits refusés avant toute modification ; espaces de travail = états de docks nommés (20 max). Format projet inchangé (v3).
+- **Performance** : mesures dans `docs/Performances.md` ; 5 goulots corrigés (requêtes SQLite par objet, images rouvertes, O(n²) à la suppression/annulation). Cache d'images borné à 256 Mo.
+- **Paquet** : PyInstaller (dossier) avec deux exécutables (fenêtre / console), `--selftest` et `--version`, scripts `packaging/build_windows.ps1` et `install_test.ps1`. PyInstaller installé hors du Python de l'utilisateur (`pip --target`). Non signé.
+- Recette complète : `08_Recette_J7.md`.

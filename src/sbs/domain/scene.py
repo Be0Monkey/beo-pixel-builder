@@ -147,6 +147,10 @@ class SceneModel:
     def index_of(self, inst_id: str) -> int:
         return list(self._instances).index(inst_id)
 
+    def index_map(self) -> dict[str, int]:
+        """Rang d'insertion de chaque objet, en un seul parcours (évite index_of en boucle)."""
+        return {iid: n for n, iid in enumerate(self._instances)}
+
     @property
     def floors(self) -> list[Floor]:
         return self._floors  # lecture seule : on modifie via set_floors()
@@ -242,9 +246,11 @@ class SceneModel:
     def insert_many(self, indexed: list[tuple[int, Instance]]) -> None:
         """Réinsère des instances à leur rang d'origine (annulation d'une suppression)."""
         items = list(self._instances.values())
+        taken = {i.id for i in items}
         for index, inst in sorted(indexed, key=lambda t: t[0]):
-            if any(i.id == inst.id for i in items):
+            if inst.id in taken:
                 raise ValueError("identifiant d'instance déjà utilisé")
+            taken.add(inst.id)
             self._check_target(inst)
             items.insert(min(index, len(items)), replace(inst))
         self._instances = {i.id: i for i in items}

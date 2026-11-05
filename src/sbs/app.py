@@ -1,20 +1,42 @@
-"""Point d'entrée."""
+"""Point d'entrée.
+
+Options : `--version` ; `--selftest [--report FICHIER]` (auto-test d'installation, sans fenêtre visible).
+"""
 
 import sys
 
-from PySide6.QtWidgets import QApplication
+from sbs import __version__
 
-from sbs.paths import user_data_dir
-from sbs.services.library import Library
-from sbs.services.preferences import Preferences
-from sbs.ui.main_window import MainWindow
+
+def _option(argv: list[str], name: str) -> str | None:
+    if name in argv:
+        i = argv.index(name)
+        return argv[i + 1] if i + 1 < len(argv) else None
+    return None
 
 
 def main(argv: list[str] | None = None) -> int:
-    app = QApplication.instance() or QApplication(argv if argv is not None else sys.argv)
+    args = list(sys.argv[1:] if argv is None else argv)
+    if "--version" in args:
+        if sys.stdout is not None:
+            print(f"Sprite Builder Studio {__version__}")
+        return 0
+    if "--selftest" in args:
+        from sbs.selftest import run
+        return run(_option(args, "--report"))
+
+    from PySide6.QtWidgets import QApplication
+
+    from sbs.paths import user_data_dir
+    from sbs.services.library import Library
+    from sbs.services.preferences import Preferences
+    from sbs.ui.main_window import MainWindow
+
+    app = QApplication.instance() or QApplication(["sbs", *args])
     app.setApplicationName("Sprite Builder Studio")
     prefs = Preferences(user_data_dir() / "preferences.json")
     library = Library(user_data_dir() / "library")
     window = MainWindow(prefs, library)
     window.show()
+    window.offer_recovery()  # un arrêt brutal précédent ? proposer de récupérer le travail
     return app.exec()

@@ -94,8 +94,8 @@ class LoadResult:
 
 
 # --------------------------------------------------------------------------- sauvegarde
-def save_project(path: Path, meta: ProjectMeta, model: SceneModel, library: Library) -> None:
-    path = Path(path)
+def serialize_project(meta: ProjectMeta, model: SceneModel, library: Library) -> str:
+    """Texte JSON complet du projet. Met à jour `meta` (références, date) ; ne touche pas au disque."""
     instances = model.all()
     refs = dict(meta.library_refs)  # on garde les références des images absentes
     used = {i.asset_uuid for i in instances} | {f.asset_uuid for a in model.animations.values() for f in a.frames}
@@ -140,7 +140,12 @@ def save_project(path: Path, meta: ProjectMeta, model: SceneModel, library: Libr
             ],
         }],
     }
-    text = json.dumps(doc, indent=1, ensure_ascii=False)  # sérialisé AVANT de toucher au disque
+    return json.dumps(doc, indent=1, ensure_ascii=False)
+
+
+def save_project(path: Path, meta: ProjectMeta, model: SceneModel, library: Library) -> None:
+    path = Path(path)
+    text = serialize_project(meta, model, library)  # sérialisé AVANT de toucher au disque
     if path.exists():
         try:
             shutil.copy2(path, path.with_name(path.name + ".bak"))
@@ -252,14 +257,22 @@ def load_project(path: Path, library: Library) -> LoadResult:
     missing: list[str] = []
     remapped = 0
 
+    resolved: dict[str, str] = {}  # mémo : un module n'est cherché qu'une fois, pas à chaque objet
+
     def resolve(asset_uuid: str) -> str:
         """Rattache un module à la bibliothèque de cet ordinateur (par origine + identifiant du kit)."""
         nonlocal remapped
+        if asset_uuid not in resolved:
+            resolved[asset_uuid] = _resolve_once(asset_uuid)
+        if resolved[asset_uuid] != asset_uuid:
+            remapped += 1  # compté par objet rattaché, comme avant
+        return resolved[asset_uuid]
+
+    def _resolve_once(asset_uuid: str) -> str:
         if library.get(asset_uuid) is None:
             ref = refs.get(asset_uuid)
             found = library.find_by_source(ref["origin"], ref["source_id"]) if ref else None
             if found is not None:
-                remapped += 1
                 return found.uuid
             if asset_uuid not in missing:
                 missing.append(asset_uuid)  # conservé : repère rose

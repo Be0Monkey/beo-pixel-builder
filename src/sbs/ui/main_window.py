@@ -46,6 +46,8 @@ from sbs.ui.module_dialog import ModuleDialog
 from sbs.ui.preview_dialog import PreviewDialog
 from sbs.ui.repeat_dialog import RepeatDialog
 from sbs.ui.pixel_editor import PixelEditorDialog
+from sbs.ui.session_mixin import SessionMixin
+from sbs.ui.guide_dialog import GuideDialog
 
 _B64 = "utf-8"
 
@@ -57,7 +59,7 @@ def _placeholder(text: str) -> QLabel:
     return label
 
 
-class MainWindow(QMainWindow):
+class MainWindow(SessionMixin, QMainWindow):
     def __init__(self, prefs: Preferences, library: Library):
         super().__init__()
         self.prefs = prefs
@@ -91,8 +93,11 @@ class MainWindow(QMainWindow):
         self.canvas.mouse_moved.connect(lambda x, y: self._update_status(x, y))
         self.canvas.zoom_changed.connect(lambda z: self._update_status())
         self._mouse = (0, 0)
+        self._init_session()
         self._build_menus()
         self._build_toolbar()
+        self._collect_actions()
+        self.apply_shortcuts()
         self.statusBar().showMessage("Prêt")
         self._update_status()
         self._on_history_changed()
@@ -121,6 +126,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction(QAction("&Enregistrer", self, shortcut="Ctrl+S", triggered=self.save))
         file_menu.addAction(QAction("Enregistrer &sous…", self, shortcut="Ctrl+Shift+S",
                                     triggered=self.save_as))
+        file_menu.addAction(QAction("&Versions et récupération…", self, triggered=self.open_versions_dialog))
         file_menu.addSeparator()
         file_menu.addAction(QAction("E&xporter en PNG…", self, shortcut="Ctrl+E",
                                     triggered=lambda: self.export_dialog(False)))
@@ -129,11 +135,14 @@ class MainWindow(QMainWindow):
         file_menu.addAction(QAction("Exporter pour &Godot 4…", self, triggered=lambda: self.open_export("godot4")))
         file_menu.addAction(QAction("Exporter en &JSON…", self, triggered=lambda: self.open_export("json")))
         file_menu.addSeparator()
+        file_menu.addAction(QAction("&Options…", self, shortcut="Ctrl+,", triggered=self.open_options))
         file_menu.addAction(QAction("&Quitter", self, shortcut="Ctrl+Q", triggered=self.close))
 
         edit_menu = bar.addMenu("&Édition")
         self.act_undo = QAction("&Annuler", self, shortcut="Ctrl+Z", triggered=self.canvas_scene.undo)
+        self.act_undo.setObjectName("edit_undo")
         self.act_redo = QAction("&Rétablir", self, triggered=self.canvas_scene.redo)
+        self.act_redo.setObjectName("edit_redo")
         self.act_redo.setShortcuts(["Ctrl+Y", "Ctrl+Shift+Z"])
         edit_menu.addAction(self.act_undo)
         edit_menu.addAction(self.act_redo)
@@ -199,11 +208,16 @@ class MainWindow(QMainWindow):
         for dock in self.docks.values():
             view_menu.addAction(dock.toggleViewAction())
         view_menu.addSeparator()
+        self.workspace_menu = view_menu.addMenu("&Espaces de travail")
+        self.workspace_menu.aboutToShow.connect(self._fill_workspace_menu)
         view_menu.addAction(
             QAction("Réinitialiser les panneaux", self, triggered=self.reset_layout)
         )
 
         help_menu = bar.addMenu("&Aide")
+        help_menu.addAction(QAction("&Guide utilisateur", self, shortcut="F1", triggered=self.open_guide))
+        help_menu.addAction(QAction("&Raccourcis clavier…", self,
+                                    triggered=lambda: self.open_options(start_tab=1)))
         help_menu.addAction(QAction("À propos", self, triggered=self._about))
 
     def _build_toolbar(self) -> None:
@@ -277,6 +291,8 @@ class MainWindow(QMainWindow):
 
     def _apply(self, meta: ProjectMeta, instances, path: Path | None, floors=None, groups=None,
                animations=None) -> None:
+        if meta.id != self.meta.id:
+            self.recovery.clear(self.meta.id)  # l'ancien travail est fermé (enregistré ou abandonné)
         self.scene_model.replace(instances, floors, groups, animations)  # la scène se synchronise sur le modèle
         self.history.clear()
         self.meta, self.path = meta, path
@@ -342,6 +358,7 @@ class MainWindow(QMainWindow):
             return False
         self.path = Path(path)
         self.history.mark_saved()
+        self._after_saved(self.path)
         self._update_title()
         self.statusBar().showMessage(f"Enregistré : {path}", 4000)
         return True
@@ -639,11 +656,15 @@ class MainWindow(QMainWindow):
         if not self._confirm_discard():
             event.ignore()
             return
+        self.recovery.clear(self.meta.id)  # fermeture normale : pas de récupération à proposer
         try:
             self.save_layout()
         except OSError as exc:
             QMessageBox.warning(self, "Préférences", f"Impossible d'enregistrer la disposition : {exc}")
         super().closeEvent(event)
+
+    def open_guide(self) -> None:
+        GuideDialog(self).exec()
 
     def _about(self) -> None:
         QMessageBox.about(
