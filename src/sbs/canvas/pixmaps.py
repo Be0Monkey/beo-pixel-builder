@@ -23,10 +23,10 @@ class PixmapCache:
         self._cache: dict[str, QPixmap] = {}
         self._placeholder = _placeholder()
 
-    def get(self, asset: Asset | None) -> QPixmap:
+    def get(self, asset: Asset | None, variant: str | None = None) -> QPixmap:
         if asset is None:
             return self._placeholder
-        key = asset.image_path
+        key = asset.image_for(variant)
         if key not in self._cache:
             pm = QPixmap(str(self.library.abs_path(key)))
             self._cache[key] = pm if not pm.isNull() else self._placeholder

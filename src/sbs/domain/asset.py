@@ -31,3 +31,11 @@ class Asset:
     variants: tuple[Variant, ...] = ()
     extra: dict[str, Any] = field(default_factory=dict)  # champs du kit conservés tels quels
     origin: str = ""  # ex. "kit"
+
+    def image_for(self, variant: str | None) -> str:
+        """Chemin de l'image à afficher pour une variante (base si absente ou inconnue)."""
+        if variant:
+            for v in self.variants:
+                if v.name == variant:
+                    return v.image_path
+        return self.image_path

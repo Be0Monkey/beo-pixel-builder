@@ -3,11 +3,13 @@
 import base64
 from pathlib import Path
 
-from PySide6.QtCore import QByteArray, Qt
+from PySide6.QtCore import QByteArray, QMimeData, Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QDockWidget,
+    QApplication,
     QFileDialog,
+    QInputDialog,
     QLabel,
     QMainWindow,
     QMessageBox,
@@ -19,6 +21,8 @@ from sbs import __version__
 from sbs.canvas.scene import CanvasScene
 from sbs.canvas.view import CanvasView
 from sbs.domain.scene import SceneModel
+from sbs.services.clipboard_codec import MIME as CLIP_MIME
+from sbs.services.exporter import ExportError, export_png
 from sbs.services.library import Library
 from sbs.services.project_io import (
     EXTENSION,
@@ -52,6 +56,7 @@ class MainWindow(QMainWindow):
         self.path: Path | None = None
         self.dirty = False
         self._loading = False
+        self._paste_n = 0
         self.scene_model = SceneModel()
         self.scene_model.add_listener(self._on_model_changed)
         self.canvas_scene = CanvasScene(self.scene_model, library)
@@ -77,6 +82,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Prêt")
         self._update_status()
         self._update_title()
+        QApplication.clipboard().dataChanged.connect(lambda: setattr(self, "_paste_n", 0))
         self._default_state = self.saveState()
         self._default_geometry = self.saveGeometry()
         self._restore_layout()
@@ -98,9 +104,20 @@ class MainWindow(QMainWindow):
         file_menu.addAction(QAction("Enregistrer &sous…", self, shortcut="Ctrl+Shift+S",
                                     triggered=self.save_as))
         file_menu.addSeparator()
+        file_menu.addAction(QAction("E&xporter en PNG…", self, shortcut="Ctrl+E",
+                                    triggered=lambda: self.export_dialog(False)))
+        file_menu.addAction(QAction("Exporter en PNG a&grandi…", self,
+                                    triggered=lambda: self.export_dialog(True)))
+        file_menu.addSeparator()
         file_menu.addAction(QAction("&Quitter", self, shortcut="Ctrl+Q", triggered=self.close))
 
         edit_menu = bar.addMenu("&Édition")
+        edit_menu.addAction(QAction("&Copier", self, shortcut="Ctrl+C", triggered=self.copy_selection))
+        edit_menu.addAction(QAction("Co&uper", self, shortcut="Ctrl+X", triggered=self.cut_selection))
+        edit_menu.addAction(QAction("C&oller", self, shortcut="Ctrl+V", triggered=self.paste))
+        edit_menu.addAction(QAction("Dupli&quer", self, shortcut="Ctrl+D",
+                                    triggered=self.duplicate_selection))
+        edit_menu.addSeparator()
         edit_menu.addAction(QAction("&Supprimer", self, shortcut="Delete",
                                     triggered=self.canvas_scene.remove_selected))
         edit_menu.addSeparator()
@@ -246,6 +263,77 @@ class MainWindow(QMainWindow):
         self.path, self.dirty = Path(path), False
         self._update_title()
         self.statusBar().showMessage(f"Enregistré : {path}", 4000)
+        return True
+
+    # --- copier / coller / dupliquer -----------------------------------------------------------
+    def copy_selection(self) -> bool:
+        text = self.canvas_scene.copy_payload()
+        if text is None:
+            return False
+        mime = QMimeData()
+        mime.setData(CLIP_MIME, text.encode("utf-8"))
+        mime.setText(text)
+        QApplication.clipboard().setMimeData(mime)
+        self._paste_n = 0
+        return True
+
+    def cut_selection(self) -> bool:
+        if not self.copy_selection():
+            return False
+        self.canvas_scene.remove_selected()
+        return True
+
+    def paste(self) -> int:
+        mime = QApplication.clipboard().mimeData()
+        if mime is None or not mime.hasFormat(CLIP_MIME):
+            return 0
+        text = bytes(mime.data(CLIP_MIME)).decode("utf-8", errors="replace")
+        self._paste_n += 1
+        step = 8 * self._paste_n  # décalage croissant : on voit les copies
+        try:
+            pasted, skipped = self.canvas_scene.paste_payload(text, step, step)
+        except ValueError:
+            self.statusBar().showMessage("Le presse-papiers ne contient pas d'objets de l'atelier.", 4000)
+            return 0
+        if skipped:
+            self.statusBar().showMessage(f"{skipped} objet(s) ignoré(s) : image absente de la bibliothèque.", 5000)
+        return pasted
+
+    def duplicate_selection(self) -> int:
+        return self.canvas_scene.duplicate_selected(8)
+
+    # --- export -------------------------------------------------------------------------------
+    def export_dialog(self, ask_scale: bool) -> None:
+        scale = 1
+        if ask_scale:
+            scale, ok = QInputDialog.getInt(
+                self, "Exporter en PNG agrandi", "Facteur d'agrandissement (entier) :", 2, 1, 16
+            )
+            if not ok:
+                return
+        file, _ = QFileDialog.getSaveFileName(
+            self, "Exporter en PNG", f"{self.meta.name}.png", "Image PNG (*.png)"
+        )
+        if file:
+            path = Path(file)
+            if path.suffix.lower() != ".png":
+                path = path.with_name(path.name + ".png")
+            self.export_to(path, scale)
+
+    def export_to(self, path: Path, scale: int = 1) -> bool:
+        self.canvas_scene.commit_positions()
+        try:
+            r = export_png(Path(path), self.scene_model.all(), self.library, scale=scale)
+        except ExportError as exc:
+            QMessageBox.critical(self, "Export impossible", str(exc))
+            return False
+        msg = f"PNG exporté : {r.width}×{r.height} px (×{r.scale}), {r.count} objet(s)."
+        if r.skipped:
+            QMessageBox.warning(
+                self, "Export incomplet",
+                f"{msg}\n\n{len(r.skipped)} objet(s) non dessiné(s) (image absente ou illisible).",
+            )
+        self.statusBar().showMessage(msg, 6000)
         return True
 
     # --- disposition --------------------------------------------------

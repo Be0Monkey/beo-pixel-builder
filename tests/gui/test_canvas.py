@@ -135,3 +135,34 @@ def test_z_manuel_devant_derriere_et_retour_auto(env):
     assert scene.items_by_id[a.id].zValue() < scene.items_by_id[b.id].zValue()
     scene.shift_z_selected(-1)
     assert model.get(a.id).z_manual == -1
+
+
+def test_copier_coller_et_dupliquer(env):
+    model, scene, view, asset = env
+    a = scene.add_asset(asset.uuid, 10, 10)
+    b = scene.add_asset(asset.uuid, 40, 30)
+    model.set_z_manual(b.id, 3)
+    for item in scene.items_by_id.values():
+        item.setSelected(True)
+    text = scene.copy_payload()
+    assert text
+    pasted, skipped = scene.paste_payload(text, 8, 8)
+    assert (pasted, skipped) == (2, 0) and len(model) == 4
+    new = [i for i in model.all() if i.id not in (a.id, b.id)]
+    assert len({i.id for i in model.all()}) == 4  # nouveaux identifiants
+    assert sorted((i.x, i.y, i.z_manual) for i in new) == [(18, 18, 0), (48, 38, 3)]
+    assert set(scene.selected_ids()) == {i.id for i in new}  # le collé est sélectionné
+    assert scene.duplicate_selected(8) == 2 and len(model) == 6
+
+
+def test_coller_image_inconnue_ignoree(env):
+    model, scene, view, asset = env
+    scene.add_asset(asset.uuid, 0, 0)
+    scene.items_by_id[model.all()[0].id].setSelected(True)
+    text = scene.copy_payload()
+    text = text.replace(asset.uuid, "uuid-inconnu").replace('"source_id": "mur_a"', '"source_id": "autre"')
+    assert scene.paste_payload(text, 0, 0) == (0, 1) and len(model) == 1
+    with pytest.raises(ValueError):
+        scene.paste_payload("n'importe quoi", 0, 0)
+    scene.clearSelection()
+    assert scene.copy_payload() is None  # rien de sélectionné

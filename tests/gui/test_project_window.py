@@ -98,3 +98,37 @@ def test_echec_d_ecriture_signale_et_garde_les_modifications(win, tmp_path, monk
                         lambda *a, **k: (_ for _ in ()).throw(OSError("plein")))
     assert win.save_to(tmp_path / "x.sbsproj") is False
     assert win.dirty
+
+
+def test_copier_coller_via_la_fenetre(win):
+    a = win._asset
+    win.canvas_scene.add_asset(a.uuid, 10, 10)
+    assert win.copy_selection()
+    assert win.paste() == 1 and win.paste() == 1  # deux collages : décalés de 8 puis 16
+    xs = sorted(i.x for i in win.scene_model.all())
+    assert xs == [10, 18, 26]
+    assert win.cut_selection() and len(win.scene_model) == 2
+
+
+def test_presse_papiers_etranger_ignore(win):
+    from PySide6.QtCore import QMimeData
+    mime = QMimeData()
+    mime.setText("du texte quelconque")
+    QApplication.clipboard().setMimeData(mime)
+    assert win.paste() == 0 and len(win.scene_model) == 0
+
+
+def test_export_depuis_la_fenetre(win, tmp_path):
+    from PIL import Image
+    a = win._asset
+    win.canvas_scene.add_asset(a.uuid, 0, 0)
+    out = tmp_path / "sortie é.png"
+    assert win.export_to(out, 2)
+    im = Image.open(out)
+    assert im.mode == "RGBA" and im.size == (32, 40)
+    assert win.dirty  # exporter n'enregistre pas et ne change pas le document
+
+
+def test_export_scene_vide_refuse_sans_fichier(win, tmp_path):
+    assert win.export_to(tmp_path / "vide.png") is False
+    assert not (tmp_path / "vide.png").exists()

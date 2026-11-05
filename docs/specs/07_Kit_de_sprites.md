@@ -13,7 +13,7 @@
 |---|---|---|
 | `modules_px/<catégorie>/` | PNG des sprites, de leurs variantes, de leurs normales (`_n`) et émissions (`_e`) | 768 |
 | `metadata/modules_px/` | une fiche JSON par module + `_index.json` (toutes les fiches réunies) | 163 fiches |
-| `recipes/` | assemblages (maisons, ferme, forge...) en JSON | 18 |
+| `recipes/` | assemblages (maisons, ferme, forge...) en JSON | 17 |
 | `assemblages/` | sprite, aperçu, normales, émission de chaque assemblage | 69 fichiers |
 | `apercus/` | catalogue, village, scène avec lumière | 7 PNG |
 
@@ -74,6 +74,6 @@ Catégories (15) : batiments, clotures, commerce, decorations, details, etages, 
 ## 6. Points à vérifier au tout début de J1a
 1. ~~Origine de `x, y`~~ et ~~ordre de dessin~~ : résolus (voir §5).
 2. Le sens exact de `tile` et `mode`.
-3. Vérifier les 17 autres recettes de la même façon : c'est le test T15.
+3. ~~Vérifier les autres recettes~~ : fait le 5 novembre 2026, les **17 recettes** donnent une image identique à 0 pixel à `assemblages/<id>_sprite.png` (test T15 automatisé).
 
 Ne jamais modifier les fichiers du kit : l'import fait une **copie gérée**.

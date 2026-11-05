@@ -5,6 +5,7 @@ from PySide6.QtWidgets import QGraphicsItem, QGraphicsPixmapItem, QGraphicsScene
 
 from sbs.canvas.pixmaps import PixmapCache
 from sbs.domain.scene import Instance, SceneModel
+from sbs.services.clipboard_codec import decode_instances, encode_instances
 from sbs.services.library import Library
 
 SCENE_HALF = 4096
@@ -47,7 +48,7 @@ class CanvasScene(QGraphicsScene):
     def _make_item(self, inst: Instance) -> InstanceItem:
         asset = self.library.get(inst.asset_uuid)
         pivot = (asset.pivot_x, asset.pivot_y) if asset else (0, 0)
-        item = InstanceItem(inst.id, self.pixmaps.get(asset), pivot)
+        item = InstanceItem(inst.id, self.pixmaps.get(asset, inst.variant), pivot)
         item.place_pivot_at(inst.x, inst.y)
         self.addItem(item)
         self.items_by_id[inst.id] = item
@@ -62,15 +63,54 @@ class CanvasScene(QGraphicsScene):
         self.refresh_z()
 
     # --- opérations ----------------------------------------------------------
+    def _place(self, asset_uuid: str, x: int, y: int, z: int = 0, variant: str | None = None):
+        inst = self.model.add(asset_uuid, int(x), int(y))
+        if z:
+            self.model.set_z_manual(inst.id, z)
+        inst.variant = variant
+        return inst, self._make_item(inst)
+
     def add_asset(self, asset_uuid: str, x: int, y: int) -> Instance | None:
         if self.library.get(asset_uuid) is None:
             return None
-        inst = self.model.add(asset_uuid, int(x), int(y))
-        item = self._make_item(inst)
+        inst, item = self._place(asset_uuid, x, y)
         self.refresh_z()
         self.clearSelection()
         item.setSelected(True)
         return inst
+
+    # --- copier / coller -----------------------------------------------------------
+    def selection_in_model_order(self) -> list[Instance]:
+        chosen = set(self.selected_ids())
+        return [i for i in self.model.all() if i.id in chosen]
+
+    def copy_payload(self) -> str | None:
+        """Texte JSON de la sélection (None si rien de sélectionné)."""
+        self.commit_positions()
+        items = self.selection_in_model_order()
+        return encode_instances(items, self.library) if items else None
+
+    def paste_payload(self, text: str, dx: int, dy: int) -> tuple[int, int]:
+        """Colle avec un décalage ; renvoie (collés, ignorés car image inconnue)."""
+        entries = decode_instances(text)  # ValueError si le contenu n'est pas le nôtre
+        self.clearSelection()
+        pasted = skipped = 0
+        for e in entries:
+            asset = self.library.get(e.asset_uuid)
+            if asset is None and e.origin and e.source_id:
+                asset = self.library.find_by_source(e.origin, e.source_id)
+            if asset is None:
+                skipped += 1
+                continue
+            _, item = self._place(asset.uuid, e.x + dx, e.y + dy, e.z_manual, e.variant)
+            item.setSelected(True)
+            pasted += 1
+        self.refresh_z()
+        return pasted, skipped
+
+    def duplicate_selected(self, offset: int = 8) -> int:
+        text = self.copy_payload()
+        return self.paste_payload(text, offset, offset)[0] if text else 0
 
     def selected_ids(self) -> list[str]:
         return [i.inst_id for i in self.selectedItems() if isinstance(i, InstanceItem)]

@@ -48,7 +48,7 @@ Panneaux dockables, état mémorisé par espace de travail. Une bibliothèque av
 5. Grouper la construction ; sauvegarder ; exporter PNG transparent.
 
 ## 3 bis. Premier lancement avec le kit
-Au premier lancement, proposer « Importer le kit de sprites » (choix du dossier). Progression visible ; les 163 modules arrivent classés dans leurs 15 catégories, avec leurs variantes. Les 18 recettes apparaissent comme modules composites prêts à glisser sur le canevas.
+Au premier lancement, proposer « Importer le kit de sprites » (choix du dossier). Progression visible ; les 163 modules arrivent classés dans leurs 15 catégories, avec leurs variantes. Les 17 recettes apparaissent comme modules composites prêts à glisser sur le canevas.
 
 ## 4. Modifier un module placé
 - Double-clic / menu **Éditer le sprite** ouvre atelier Pixel Art avec ce module.

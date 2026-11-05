@@ -1,7 +1,7 @@
 # 05 — Plan de tests et d’acceptation
 
 ## A. Données de démonstration
-**Jeu d'essai principal : le kit Blender fourni** (163 modules, 768 PNG, 18 recettes, voir `07`). Il couvre déjà des tailles variées (16×44, 34×19, arbres, bâtiments...), des variantes, des normales et des émissions.
+**Jeu d'essai principal : le kit Blender fourni** (163 modules, 768 PNG, 17 recettes, voir `07`). Il couvre déjà des tailles variées (16×44, 34×19, arbres, bâtiments...), des variantes, des normales et des émissions.
 À créer en plus (non couverts par le kit) : un sprite animé de 4 frames, une image corrompue, deux PNG de même nom et de contenus différents, un PNG semi-transparent.
 
 ## B. Tests unitaires prioritaires
