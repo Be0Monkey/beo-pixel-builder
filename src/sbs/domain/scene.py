@@ -6,7 +6,8 @@ profondeur automatique (y du pivot), puis ordre d'insertion. Étages et calques 
 """
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from contextlib import contextmanager
+from dataclasses import dataclass, replace
 
 from sbs.domain.ids import new_id
 
@@ -31,13 +32,55 @@ class SceneModel:
     def __init__(self) -> None:
         self._instances: dict[str, Instance] = {}  # l'ordre du dict = ordre d'insertion
         self._listeners: list[Callable[[], None]] = []
+        self._batch_depth = 0
+        self._pending = False
 
     def add_listener(self, fn: Callable[[], None]) -> None:
         self._listeners.append(fn)
 
     def _notify(self) -> None:
+        if self._batch_depth > 0:
+            self._pending = True
+            return
         for fn in list(self._listeners):
             fn()
+
+    @contextmanager
+    def batch(self):
+        """Regroupe plusieurs modifications en UNE notification (une commande = un rafraîchissement)."""
+        self._batch_depth += 1
+        try:
+            yield
+        finally:
+            self._batch_depth -= 1
+            if self._batch_depth == 0 and self._pending:
+                self._pending = False
+                self._notify()
+
+    def snapshot(self) -> list[tuple]:
+        """État complet, ordre d'insertion compris (utile aux tests d'annulation)."""
+        return [(i.id, i.asset_uuid, i.x, i.y, i.z_manual, i.variant) for i in self._instances.values()]
+
+    def add_instance(self, inst: Instance) -> None:
+        """Ajoute une copie d'une instance existante (utilisé par les commandes)."""
+        _check_int("x", inst.x), _check_int("y", inst.y), _check_int("z", inst.z_manual)
+        if inst.id in self._instances:
+            raise ValueError("identifiant d'instance déjà utilisé")
+        self._instances[inst.id] = replace(inst)
+        self._notify()
+
+    def insert_many(self, indexed: list[tuple[int, Instance]]) -> None:
+        """Réinsère des instances à leur rang d'origine (annulation d'une suppression)."""
+        items = list(self._instances.values())
+        for index, inst in sorted(indexed, key=lambda t: t[0]):
+            if inst.id in self._instances or any(i.id == inst.id for i in items):
+                raise ValueError("identifiant d'instance déjà utilisé")
+            items.insert(min(index, len(items)), replace(inst))
+        self._instances = {i.id: i for i in items}
+        self._notify()
+
+    def index_of(self, inst_id: str) -> int:
+        return list(self._instances).index(inst_id)
 
     def replace(self, instances: list[Instance]) -> None:
         """Remplace tout le contenu (chargement / nouveau projet). Une seule notification."""

@@ -166,3 +166,89 @@ def test_coller_image_inconnue_ignoree(env):
         scene.paste_payload("n'importe quoi", 0, 0)
     scene.clearSelection()
     assert scene.copy_payload() is None  # rien de sélectionné
+
+
+def test_j2_validation_annuler_20_manipulations_variees(env):
+    """Critère du plan : annuler 20 manipulations variées, puis tout rétablir."""
+    model, scene, view, asset = env
+    history = scene.history
+    states = [model.snapshot()]
+
+    def step(action):
+        n = len(history._stack)
+        action()
+        states.append(model.snapshot())
+        assert len(history._stack) == n + 1, "une manipulation = une entrée d'historique"
+
+    a = b = c = None
+
+    def add(x, y):
+        return lambda: scene.add_asset(asset.uuid, x, y)
+
+    step(add(0, 0))
+    a = model.all()[-1].id
+    step(add(30, 10))
+    b = model.all()[-1].id
+    step(add(60, 20))
+    c = model.all()[-1].id
+    scene.select_ids([a, b])
+    step(lambda: scene.move_selected(5, 5))
+    history._last_time = float("-inf")  # pause entre deux gestes clavier : pas de fusion
+    step(lambda: scene.shift_z_selected(1))
+    scene.select_ids([c])
+    step(lambda: scene.shift_z_selected(-1))
+    step(lambda: scene.reset_z_selected())
+    scene.select_ids([a, b, c])
+    step(lambda: scene.duplicate_selected(8))
+    scene.select_ids([model.all()[-1].id])
+    step(lambda: scene.remove_selected())
+    scene.select_ids([a])
+    text = scene.copy_payload()
+    step(lambda: scene.paste_payload(text, 12, 12))
+    scene.select_ids([c])
+    step(lambda: scene.shift_z_selected(2))
+    scene.select_ids([b])
+    step(lambda: scene.remove_selected())
+    for i in range(8):  # 8 ajouts de plus : 20 manipulations au total
+        step(add(100 + i * 10, 50 - i))
+    assert len(states) - 1 == 20
+
+    for expected in reversed(states[:-1]):
+        assert scene.undo() is not None
+        assert model.snapshot() == expected
+        assert set(scene.items_by_id) == {i.id for i in model.all()}  # la scène suit
+    assert scene.undo() is None and len(model) == 0
+    for expected in states[1:]:
+        assert scene.redo() is not None
+        assert model.snapshot() == expected
+    scene.sync()
+    for inst in model.all():
+        assert scene.items_by_id[inst.id].pivot_position() == (inst.x, inst.y)
+
+
+def test_deplacement_souris_est_une_entree_annulable(env):
+    model, scene, view, asset = env
+    inst = scene.add_asset(asset.uuid, 0, 0)
+    start = (5, -7)
+    _send(view, QEvent.Type.MouseButtonPress, start)
+    _send(view, QEvent.Type.MouseMove, (start[0] + 20, start[1] + 9), Qt.MouseButton.NoButton,
+          Qt.MouseButton.LeftButton)
+    _send(view, QEvent.Type.MouseMove, (start[0] + 40, start[1] + 18), Qt.MouseButton.NoButton,
+          Qt.MouseButton.LeftButton)
+    _send(view, QEvent.Type.MouseButtonRelease, (start[0] + 40, start[1] + 18),
+          buttons=Qt.MouseButton.NoButton)
+    assert (model.get(inst.id).x, model.get(inst.id).y) != (0, 0)
+    assert scene.history.undo_name.startswith("Déplacer")
+    scene.undo()
+    assert (model.get(inst.id).x, model.get(inst.id).y) == (0, 0)
+    assert scene.items_by_id[inst.id].pivot_position() == (0, 0)
+    assert scene.history.undo_name.startswith("Ajouter")  # un seul geste = une seule entrée
+
+
+def test_selection_apres_annulation(env):
+    model, scene, view, asset = env
+    a = scene.add_asset(asset.uuid, 0, 0)
+    scene.remove_selected()
+    assert scene.selected_ids() == []
+    scene.undo()
+    assert scene.selected_ids() == [a.id]  # l'objet revient, sélectionné

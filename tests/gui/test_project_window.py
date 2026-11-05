@@ -132,3 +132,35 @@ def test_export_depuis_la_fenetre(win, tmp_path):
 def test_export_scene_vide_refuse_sans_fichier(win, tmp_path):
     assert win.export_to(tmp_path / "vide.png") is False
     assert not (tmp_path / "vide.png").exists()
+
+
+def test_annuler_retablir_dans_la_fenetre(win):
+    a = win._asset
+    assert not win.act_undo.isEnabled()
+    win.canvas_scene.add_asset(a.uuid, 5, 5)
+    assert win.act_undo.isEnabled() and "Ajouter" in win.act_undo.text()
+    win.act_undo.trigger()
+    assert len(win.scene_model) == 0 and not win.act_undo.isEnabled()
+    assert win.act_redo.isEnabled() and "Ajouter" in win.act_redo.text()
+    win.act_redo.trigger()
+    assert len(win.scene_model) == 1
+
+
+def test_annuler_jusqu_a_l_etat_enregistre_enleve_l_etoile(win, tmp_path):
+    a = win._asset
+    win.canvas_scene.add_asset(a.uuid, 5, 5)
+    win.save_to(tmp_path / "p.sbsproj")
+    assert not win.dirty and "*" not in win.windowTitle()
+    win.canvas_scene.move_selected(3, 3)
+    assert win.dirty and "*" in win.windowTitle()
+    win.canvas_scene.undo()
+    assert not win.dirty and "*" not in win.windowTitle()
+
+
+def test_ouvrir_vide_l_historique(win, tmp_path):
+    a = win._asset
+    win.canvas_scene.add_asset(a.uuid, 5, 5)
+    win.save_to(tmp_path / "p.sbsproj")
+    win.canvas_scene.add_asset(a.uuid, 9, 9)
+    win.open_path(tmp_path / "p.sbsproj")
+    assert not win.act_undo.isEnabled() and not win.dirty and len(win.scene_model) == 1

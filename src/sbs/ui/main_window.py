@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 
 from sbs import __version__
 from sbs.canvas.scene import CanvasScene
+from sbs.commands.history import History
 from sbs.canvas.view import CanvasView
 from sbs.domain.scene import SceneModel
 from sbs.services.clipboard_codec import MIME as CLIP_MIME
@@ -54,12 +55,12 @@ class MainWindow(QMainWindow):
 
         self.meta = ProjectMeta()
         self.path: Path | None = None
-        self.dirty = False
-        self._loading = False
         self._paste_n = 0
         self.scene_model = SceneModel()
-        self.scene_model.add_listener(self._on_model_changed)
-        self.canvas_scene = CanvasScene(self.scene_model, library)
+        self.history = History(self.scene_model)
+        self.history.add_listener(self._on_history_changed)
+        self.scene_model.add_listener(lambda: self._update_status())
+        self.canvas_scene = CanvasScene(self.scene_model, library, self.history)
         self.canvas = CanvasView(self.canvas_scene)
         self.setCentralWidget(self.canvas)
         self.docks: dict[str, QDockWidget] = {}
@@ -81,6 +82,7 @@ class MainWindow(QMainWindow):
         self._build_toolbar()
         self.statusBar().showMessage("Prêt")
         self._update_status()
+        self._on_history_changed()
         self._update_title()
         QApplication.clipboard().dataChanged.connect(lambda: setattr(self, "_paste_n", 0))
         self._default_state = self.saveState()
@@ -112,6 +114,12 @@ class MainWindow(QMainWindow):
         file_menu.addAction(QAction("&Quitter", self, shortcut="Ctrl+Q", triggered=self.close))
 
         edit_menu = bar.addMenu("&Édition")
+        self.act_undo = QAction("&Annuler", self, shortcut="Ctrl+Z", triggered=self.canvas_scene.undo)
+        self.act_redo = QAction("&Rétablir", self, triggered=self.canvas_scene.redo)
+        self.act_redo.setShortcuts(["Ctrl+Y", "Ctrl+Shift+Z"])
+        edit_menu.addAction(self.act_undo)
+        edit_menu.addAction(self.act_redo)
+        edit_menu.addSeparator()
         edit_menu.addAction(QAction("&Copier", self, shortcut="Ctrl+C", triggered=self.copy_selection))
         edit_menu.addAction(QAction("Co&uper", self, shortcut="Ctrl+X", triggered=self.cut_selection))
         edit_menu.addAction(QAction("C&oller", self, shortcut="Ctrl+V", triggered=self.paste))
@@ -162,12 +170,26 @@ class MainWindow(QMainWindow):
         )
 
     # --- document ---------------------------------------------------------------------------
-    def _on_model_changed(self) -> None:
-        if self._loading:
-            return
-        self.dirty = True
+    @property
+    def dirty(self) -> bool:
+        return self.history.dirty
+
+    @dirty.setter
+    def dirty(self, value: bool) -> None:
+        if value:
+            self.history.mark_dirty()
+        else:
+            self.history.mark_saved()
+
+    def _on_history_changed(self) -> None:
         self._update_title()
         self._update_status()
+        if hasattr(self, "act_undo"):
+            h = self.history
+            self.act_undo.setEnabled(h.can_undo)
+            self.act_redo.setEnabled(h.can_redo)
+            self.act_undo.setText(f"&Annuler : {h.undo_name}" if h.can_undo else "&Annuler")
+            self.act_redo.setText(f"&Rétablir : {h.redo_name}" if h.can_redo else "&Rétablir")
 
     def _update_title(self) -> None:
         name = self.path.stem if self.path else self.meta.name
@@ -194,13 +216,9 @@ class MainWindow(QMainWindow):
         return True
 
     def _apply(self, meta: ProjectMeta, instances, path: Path | None) -> None:
-        self._loading = True
-        try:
-            self.scene_model.replace(instances)
-            self.canvas_scene.rebuild()
-        finally:
-            self._loading = False
-        self.meta, self.path, self.dirty = meta, path, False
+        self.scene_model.replace(instances)  # la scène se synchronise sur le modèle
+        self.history.clear()
+        self.meta, self.path = meta, path
         self._update_title()
         self._update_status()
 
@@ -260,7 +278,8 @@ class MainWindow(QMainWindow):
                 f"{exc}\n\nLe fichier précédent n'a pas été modifié.",
             )
             return False
-        self.path, self.dirty = Path(path), False
+        self.path = Path(path)
+        self.history.mark_saved()
         self._update_title()
         self.statusBar().showMessage(f"Enregistré : {path}", 4000)
         return True
