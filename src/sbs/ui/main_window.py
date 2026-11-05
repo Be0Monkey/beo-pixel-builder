@@ -35,7 +35,12 @@ from sbs.services.project_io import (
 from sbs.services.preferences import Preferences
 from sbs.ui.floors_panel import FloorsPanel
 from sbs.ui.library_panel import LibraryPanel
+from sbs.domain.pixel import PixelDoc
+from sbs.domain.pixel_edit import PixelEditor, check_color
+from sbs.services.library import LibraryError
+from sbs.services.pixel_io import load_doc, png_bytes, save_layers
 from sbs.ui.module_dialog import ModuleDialog
+from sbs.ui.pixel_editor import PixelEditorDialog
 
 _B64 = "utf-8"
 
@@ -106,6 +111,7 @@ class MainWindow(QMainWindow):
         bar = self.menuBar()
         file_menu = bar.addMenu("&Fichier")
         file_menu.addAction(QAction("&Nouveau", self, shortcut="Ctrl+N", triggered=self.new_project))
+        file_menu.addAction(QAction("Nouveau &sprite…", self, shortcut="Ctrl+Shift+N", triggered=self.new_sprite))
         file_menu.addAction(QAction("&Ouvrir…", self, shortcut="Ctrl+O", triggered=self.open_dialog))
         file_menu.addAction(QAction("&Enregistrer", self, shortcut="Ctrl+S", triggered=self.save))
         file_menu.addAction(QAction("Enregistrer &sous…", self, shortcut="Ctrl+Shift+S",
@@ -139,6 +145,8 @@ class MainWindow(QMainWindow):
                                    triggered=self.canvas_scene.ungroup_selected)
         edit_menu.addAction(self.act_group)
         edit_menu.addAction(self.act_ungroup)
+        edit_menu.addAction(QAction("&Modifier les pixels…", self, shortcut="F6",
+                                    triggered=self.edit_pixels))
         edit_menu.addAction(QAction("&Propriétés du module…", self, shortcut="F4",
                                     triggered=self.edit_module_properties))
         self.variant_menu = edit_menu.addMenu("&Variante")
@@ -354,6 +362,94 @@ class MainWindow(QMainWindow):
                                  ("Bords", self.canvas_scene.snap.edges),
                                  ("Ancrages", self.canvas_scene.snap.anchors)) if on]
         return "+".join(parts) if parts else "aucun"
+
+    # --- atelier Pixel Art ----------------------------------------------------------------------
+    def _palette(self) -> list | None:
+        try:
+            raw = self.prefs.get("pixel.palette")
+            return [check_color(c) for c in raw] if raw else None
+        except (ValueError, TypeError):
+            return None
+
+    def _save_palette(self, editor: PixelEditor) -> None:
+        self.prefs.set("pixel.palette", [list(c) for c in editor.palette])
+
+    def edit_pixels(self) -> bool:
+        """Ouvre l'atelier sur le module sélectionné ; au retour, demande la portée avant d'appliquer."""
+        asset, variant, ids = self.canvas_scene.pixel_target()
+        if asset is None:
+            self.statusBar().showMessage(ids, 5000)
+            return False
+        try:
+            doc = load_doc(self.library, asset.uuid, variant)
+        except LibraryError as exc:
+            QMessageBox.warning(self, "Retouche impossible", str(exc))
+            return False
+        editor = PixelEditor(doc, self._palette())
+        uses = self.canvas_scene.count_uses(asset.uuid)
+        note = f"{asset.name}{' / ' + variant if variant else ''} — utilisé {uses} fois"
+        dlg = PixelEditorDialog(editor, f"Atelier Pixel Art — {asset.name}", note, self)
+        accepted = dlg.exec() == PixelEditorDialog.DialogCode.Accepted
+        self._save_palette(editor)
+        if not accepted or not editor.modified:
+            return False
+        box = QMessageBox(self)
+        box.setWindowTitle("Appliquer la retouche à…")
+        box.setText(f"Ce module est utilisé {uses} fois dans la scène.\nOù appliquer la retouche ?")
+        only = box.addButton(f"Cette sélection seulement ({len(ids)})", QMessageBox.ButtonRole.AcceptRole)
+        everywhere = box.addButton(f"Toutes les utilisations ({uses})", QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton("Annuler", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(only)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked not in (only, everywhere):
+            return False
+        err, uuid = self.canvas_scene.apply_pixels("instance" if clicked is only else "source", png_bytes(doc))
+        if err:
+            QMessageBox.warning(self, "Retouche impossible", err)
+            return False
+        save_layers(self.library, uuid, variant, doc)
+        self.library_panel.reload_categories()
+        self.library_panel.refresh()
+        self.statusBar().showMessage("Retouche appliquée (annulable avec Ctrl+Z).", 5000)
+        return True
+
+    def new_sprite(self) -> bool:
+        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QLineEdit, QSpinBox
+        d = QDialog(self)
+        d.setWindowTitle("Nouveau sprite")
+        name = QLineEdit("sprite_neuf")
+        w, h = QSpinBox(), QSpinBox()
+        for sp in (w, h):
+            sp.setRange(1, 512)
+            sp.setValue(32)
+        form = QFormLayout(d)
+        form.addRow("Nom", name)
+        form.addRow("Largeur (px)", w)
+        form.addRow("Hauteur (px)", h)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(d.accept)
+        bb.rejected.connect(d.reject)
+        form.addRow(bb)
+        if d.exec() != QDialog.DialogCode.Accepted:
+            return False
+        doc = PixelDoc(w.value(), h.value())
+        editor = PixelEditor(doc, self._palette())
+        dlg = PixelEditorDialog(editor, f"Nouveau sprite — {name.text()}", "Le pivot sera au bas, au centre.", self)
+        accepted = dlg.exec() == PixelEditorDialog.DialogCode.Accepted
+        self._save_palette(editor)
+        if not accepted:
+            return False
+        try:
+            asset = self.library.create_asset(name.text(), png_bytes(doc), (w.value() // 2, h.value() - 1))
+        except LibraryError as exc:
+            QMessageBox.warning(self, "Création impossible", str(exc))
+            return False
+        save_layers(self.library, asset.uuid, None, doc)
+        self.library_panel.reload_categories()
+        self.library_panel.refresh()
+        self.canvas.add_asset_at_center(asset.uuid)
+        return True
 
     def edit_module_properties(self) -> None:
         if self.canvas_scene.selected_asset() is None:

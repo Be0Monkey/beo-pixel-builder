@@ -23,6 +23,12 @@ class PixmapCache:
         self._cache: dict[str, QPixmap] = {}
         self._placeholder = _placeholder()
 
+    def invalidate(self, asset: Asset | None) -> None:
+        """Oublie les images d'une ressource (elle vient d'être retouchée)."""
+        if asset is not None:
+            for path in [asset.image_path, *[v.image_path for v in asset.variants]]:
+                self._cache.pop(path, None)
+
     def get(self, asset: Asset | None, variant: str | None = None) -> QPixmap:
         if asset is None:
             return self._placeholder

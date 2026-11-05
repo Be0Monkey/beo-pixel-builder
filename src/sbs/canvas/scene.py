@@ -7,7 +7,13 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsPixmapItem, QGraphicsScene
 
 from sbs.canvas.pixmaps import PixmapCache
-from sbs.commands.assets import DetachAndEdit, EditSourceGeometry, SetVariant
+from sbs.commands.assets import (
+    DetachAndEdit,
+    DetachAndReplaceImage,
+    EditSourceGeometry,
+    ReplaceImage,
+    SetVariant,
+)
 from sbs.commands.history import History
 from sbs.commands.instances import Macro, MoveInstances, RemoveInstances, SetZ
 from sbs.commands.structure import (
@@ -92,7 +98,8 @@ class CanvasScene(QGraphicsScene):
         return item
 
     def refresh_asset(self, asset_uuid: str) -> None:
-        """La ressource a changé (pivot, ancrages) : on reconstruit ses items."""
+        """La ressource a changé (pivot, ancrages, image) : on reconstruit ses items."""
+        self.pixmaps.invalidate(self.library.get(asset_uuid))
         for inst_id, item in list(self.items_by_id.items()):
             if item.asset_uuid == asset_uuid:
                 self.removeItem(item)
@@ -562,3 +569,34 @@ class CanvasScene(QGraphicsScene):
             return str(exc)
         self.select_ids(ids)
         return None
+
+    # --- retouche des pixels (atelier) ---------------------------------------------------------
+    def pixel_target(self):
+        """(ressource, variante, ids) de la sélection, ou (None, None, message d'erreur)."""
+        sel = self.selection_in_model_order()
+        if not sel:
+            return None, None, "Sélectionne un objet à retoucher."
+        if len({i.asset_uuid for i in sel}) != 1 or len({i.variant for i in sel}) != 1:
+            return None, None, "Sélectionne des objets du même module et de la même variante."
+        asset = self.library.get(sel[0].asset_uuid)
+        if asset is None:
+            return None, None, "Ce module est absent de la bibliothèque."
+        return asset, sel[0].variant, [i.id for i in sel]
+
+    def apply_pixels(self, scope: str, png: bytes) -> tuple[str | None, str | None]:
+        """Applique l'image retouchée. Renvoie (message d'erreur ou None, uuid de la ressource modifiée)."""
+        asset, variant, ids = self.pixel_target()
+        if asset is None:
+            return ids, None
+        try:
+            if scope == "source":
+                cmd = ReplaceImage(self.library, asset.uuid, variant, png, ids)
+            elif scope == "instance":
+                cmd = DetachAndReplaceImage(self.library, ids, variant, png)
+            else:
+                return "Portée inconnue.", None
+            self.history.execute(cmd)
+        except (ValueError, LibraryError) as exc:
+            return str(exc), None
+        self.select_ids(ids)
+        return None, (cmd.clone if scope == "instance" else asset.uuid)

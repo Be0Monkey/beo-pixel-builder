@@ -310,3 +310,109 @@ class Library:
                 for t in parse_tags(text):
                     seen.setdefault(t.lower(), t)
         return sorted(seen.values(), key=str.lower)
+
+    # --- images : lecture, remplacement (atelier Pixel Art), création --------------------------
+    def image_relpath(self, asset: Asset, variant: str | None) -> str:
+        return asset.image_for(variant)
+
+    def image_bytes(self, uuid: str, variant: str | None = None) -> bytes:
+        asset = self.get(uuid)
+        if asset is None:
+            raise LibraryError("ressource inconnue")
+        try:
+            return self.abs_path(asset.image_for(variant)).read_bytes()
+        except OSError as exc:
+            raise LibraryError(f"image illisible : {exc}") from exc
+
+    @staticmethod
+    def _check_png(png: bytes) -> tuple[int, int]:
+        import io
+
+        from PIL import Image, UnidentifiedImageError
+        try:
+            with Image.open(io.BytesIO(png)) as im:
+                im.verify()
+            with Image.open(io.BytesIO(png)) as im:
+                if im.format != "PNG":
+                    raise LibraryError("l'image doit être un PNG")
+                return im.size
+        except (UnidentifiedImageError, OSError, SyntaxError) as exc:
+            raise LibraryError(f"PNG invalide : {exc}") from exc
+
+    def replace_image(self, uuid: str, png: bytes, variant: str | None = None,
+                      revision: int | None = None) -> Asset:
+        """Remplace l'image d'une ressource (ou d'une de ses variantes) : toutes les instances liées la voient.
+        La taille doit rester la même (le pivot et les ancrages dépendent d'elle)."""
+        import hashlib
+        asset = self.get(uuid)
+        if asset is None:
+            raise LibraryError("ressource inconnue")
+        if variant is not None and not any(v.name == variant for v in asset.variants):
+            raise LibraryError(f"variante inconnue : {variant}")
+        size = self._check_png(png)
+        if size != (asset.width, asset.height):
+            raise LibraryError(f"taille différente ({size[0]}×{size[1]} au lieu de {asset.width}×{asset.height})")
+        rel = asset.image_for(variant)
+        target = self.abs_path(rel)
+        tmp = target.with_name(target.name + ".tmp")
+        try:
+            tmp.write_bytes(png)
+            import os
+            os.replace(tmp, target)
+        except OSError as exc:
+            tmp.unlink(missing_ok=True)
+            raise LibraryError(f"écriture impossible : {exc}") from exc
+        sha = hashlib.sha256(png).hexdigest()
+        rev = asset.revision + 1 if revision is None else revision
+        with self.connect() as db:
+            if variant is None:
+                db.execute("UPDATE assets SET sha256=?, revision=? WHERE uuid=?", (sha, rev, uuid))
+            else:
+                db.execute("UPDATE variants SET sha256=? WHERE asset_uuid=? AND name=?", (sha, uuid, variant))
+                db.execute("UPDATE assets SET revision=? WHERE uuid=?", (rev, uuid))
+        if variant is None:
+            from sbs.services.thumbnails import make_thumbnail
+            try:
+                make_thumbnail(target, self.thumbnail_path(uuid))
+            except (OSError, ValueError):
+                pass  # la miniature est un confort
+        self._changed(uuid)
+        return self.get(uuid)
+
+    def create_asset(self, name: str, png: bytes, pivot: tuple[int, int], category: str = "divers") -> Asset:
+        """Nouveau module « local » à partir d'un PNG (sprite créé dans l'atelier)."""
+        import hashlib
+        size = self._check_png(png)
+        name = " ".join(str(name).split())[:80]
+        if not name:
+            raise LibraryError("le nom ne peut pas être vide")
+        new = str(uuidlib.uuid4())
+        rel = f"assets/{new}/sprite.png"
+        probe = Asset(new, "", name, category, "", size[0], size[1], 0, 0, "", rel, None, None, "")
+        self.check_geometry(probe, pivot, [])
+        dst = self.abs_path(rel)
+        try:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_bytes(png)
+            asset = Asset(new, f"local_{new[:8]}", name, " ".join(category.split()) or "divers", "Créé dans l'atelier",
+                          size[0], size[1], pivot[0], pivot[1], "", rel, None, None,
+                          hashlib.sha256(png).hexdigest(), origin="local")
+            with self.connect() as db:
+                self.insert_asset(db, "local", asset)
+            from sbs.services.thumbnails import make_thumbnail
+            self.thumbs_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                make_thumbnail(dst, self.thumbnail_path(new))
+            except (OSError, ValueError):
+                pass
+        except Exception:
+            shutil.rmtree(dst.parent, ignore_errors=True)
+            raise
+        return self.get(new)
+
+    def delete_asset(self, uuid: str) -> None:
+        """Supprime une ressource jamais utilisée (nettoyage après un échec). Les projets ne sont pas touchés."""
+        with self.connect() as db:
+            db.execute("DELETE FROM assets WHERE uuid=?", (uuid,))
+        shutil.rmtree(self.assets_dir / uuid, ignore_errors=True)
+        self.thumbnail_path(uuid).unlink(missing_ok=True)

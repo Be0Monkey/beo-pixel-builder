@@ -86,3 +86,10 @@ Comparer point par point Q17–Q51, puis mettre à jour uniquement les exigences
 - Références manquantes : Édition > Sélectionner les objets à image manquante (ressource absente ou fichier image absent).
 - « Dimensions libres » : non traité, sens à préciser avec l'utilisateur.
 
+
+## Notes J4 (atelier Pixel Art V1)
+- Outils : crayon, gomme, pipette (couleur visible), remplissage (4 voisins, couleur exacte), sélection rectangulaire (suppression, déplacement aux flèches). Calques, palette (persistée), annuler/rétablir par geste.
+- Retour au chantier : toujours une confirmation de portée (cette sélection seulement = copie du module ; toutes les utilisations = source). Annulable dans le chantier.
+- La taille du sprite ne change pas (le pivot et les ancrages en dépendent). Calques gardés dans calques_<variante>.json à côté de l'image, ignorés si l'image a changé.
+- Nouveau sprite : Fichier > Nouveau sprite (module local, pivot bas-centre).
+
