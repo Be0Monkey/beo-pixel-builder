@@ -83,6 +83,13 @@ class Library:
                 "SELECT 1 FROM assets WHERE origin=? AND source_id=?", (origin, source_id)
             ).fetchone() is not None
 
+    def find_by_source(self, origin: str, source_id: str) -> Asset | None:
+        with self.connect() as db:
+            r = db.execute(
+                "SELECT * FROM assets WHERE origin=? AND source_id=?", (origin, source_id)
+            ).fetchone()
+            return self._to_asset(db, r) if r else None
+
     def list_assets(self, search: str = "", category: str | None = None) -> list[Asset]:
         sql, args = "SELECT * FROM assets WHERE 1=1", []
         if category:
@@ -115,7 +122,7 @@ class Library:
             pivot_x=r["pivot_x"], pivot_y=r["pivot_y"], mode=r["mode"],
             image_path=r["image_path"], normal_path=r["normal_path"],
             emission_path=r["emission_path"], sha256=r["sha256"], revision=r["revision"],
-            variants=variants, extra=json.loads(r["extra_json"]),
+            variants=variants, extra=json.loads(r["extra_json"]), origin=r["origin"],
         )
 
     def abs_path(self, relative: str) -> Path:

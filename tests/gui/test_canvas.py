@@ -120,3 +120,18 @@ def test_image_manquante_donne_un_repere_sans_planter(env, tmp_path):
     scene.pixmaps._cache.clear()
     inst = scene.add_asset(asset.uuid, 5, 5)
     assert inst is not None and not scene.items_by_id[inst.id].pixmap().isNull()
+
+
+def test_z_manuel_devant_derriere_et_retour_auto(env):
+    model, scene, view, asset = env
+    a = scene.add_asset(asset.uuid, 0, 10)
+    b = scene.add_asset(asset.uuid, 0, 90)
+    scene.clearSelection()
+    scene.items_by_id[a.id].setSelected(True)
+    assert scene.shift_z_selected(1) == 1
+    assert scene.items_by_id[a.id].zValue() > scene.items_by_id[b.id].zValue()
+    scene.reset_z_selected()
+    assert model.get(a.id).z_manual == 0
+    assert scene.items_by_id[a.id].zValue() < scene.items_by_id[b.id].zValue()
+    scene.shift_z_selected(-1)
+    assert model.get(a.id).z_manual == -1

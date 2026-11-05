@@ -4,7 +4,8 @@ import math
 
 from PySide6.QtCore import QPointF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import QGraphicsView
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import QGraphicsView, QMenu
 
 from sbs.canvas.mime import ASSET_MIME
 from sbs.canvas.scene import CanvasScene
@@ -148,6 +149,23 @@ class CanvasView(QGraphicsView):
             event.accept()
             return
         super().keyPressEvent(event)
+
+    # --- menu contextuel (clic droit) -------------------------------------------------------
+    def contextMenuEvent(self, event) -> None:
+        item = self.itemAt(event.pos())
+        if item is not None and not item.isSelected():
+            self.canvas_scene.clearSelection()
+            item.setSelected(True)
+        if not self.canvas_scene.selected_ids():
+            return
+        sc = self.canvas_scene
+        menu = QMenu(self)
+        menu.addAction(QAction("Mettre devant", menu, triggered=lambda: sc.shift_z_selected(1)))
+        menu.addAction(QAction("Mettre derrière", menu, triggered=lambda: sc.shift_z_selected(-1)))
+        menu.addAction(QAction("Ordre automatique", menu, triggered=sc.reset_z_selected))
+        menu.addSeparator()
+        menu.addAction(QAction("Supprimer", menu, triggered=sc.remove_selected))
+        menu.exec(event.globalPos())
 
     # --- ajout de modules -----------------------------------------------------------------
     def visible_center(self) -> tuple[int, int]:

@@ -1,11 +1,13 @@
 """Fenêtre principale (atelier Construction) : docks et barre d'état. Voir 03_Interface_et_parcours.md."""
 
 import base64
+from pathlib import Path
 
 from PySide6.QtCore import QByteArray, Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QDockWidget,
+    QFileDialog,
     QLabel,
     QMainWindow,
     QMessageBox,
@@ -18,6 +20,13 @@ from sbs.canvas.scene import CanvasScene
 from sbs.canvas.view import CanvasView
 from sbs.domain.scene import SceneModel
 from sbs.services.library import Library
+from sbs.services.project_io import (
+    EXTENSION,
+    ProjectError,
+    ProjectMeta,
+    load_project,
+    save_project,
+)
 from sbs.services.preferences import Preferences
 from sbs.ui.library_panel import LibraryPanel
 
@@ -39,7 +48,12 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Sprite Builder Studio")
         self.resize(1400, 850)
 
+        self.meta = ProjectMeta()
+        self.path: Path | None = None
+        self.dirty = False
+        self._loading = False
         self.scene_model = SceneModel()
+        self.scene_model.add_listener(self._on_model_changed)
         self.canvas_scene = CanvasScene(self.scene_model, library)
         self.canvas = CanvasView(self.canvas_scene)
         self.setCentralWidget(self.canvas)
@@ -62,6 +76,7 @@ class MainWindow(QMainWindow):
         self._build_toolbar()
         self.statusBar().showMessage("Prêt")
         self._update_status()
+        self._update_title()
         self._default_state = self.saveState()
         self._default_geometry = self.saveGeometry()
         self._restore_layout()
@@ -77,12 +92,24 @@ class MainWindow(QMainWindow):
     def _build_menus(self) -> None:
         bar = self.menuBar()
         file_menu = bar.addMenu("&Fichier")
-        quit_action = QAction("&Quitter", self, shortcut="Ctrl+Q", triggered=self.close)
-        file_menu.addAction(quit_action)
+        file_menu.addAction(QAction("&Nouveau", self, shortcut="Ctrl+N", triggered=self.new_project))
+        file_menu.addAction(QAction("&Ouvrir…", self, shortcut="Ctrl+O", triggered=self.open_dialog))
+        file_menu.addAction(QAction("&Enregistrer", self, shortcut="Ctrl+S", triggered=self.save))
+        file_menu.addAction(QAction("Enregistrer &sous…", self, shortcut="Ctrl+Shift+S",
+                                    triggered=self.save_as))
+        file_menu.addSeparator()
+        file_menu.addAction(QAction("&Quitter", self, shortcut="Ctrl+Q", triggered=self.close))
 
         edit_menu = bar.addMenu("&Édition")
         edit_menu.addAction(QAction("&Supprimer", self, shortcut="Delete",
                                     triggered=self.canvas_scene.remove_selected))
+        edit_menu.addSeparator()
+        edit_menu.addAction(QAction("Mettre &devant", self, shortcut="Ctrl+]",
+                                    triggered=lambda: self.canvas_scene.shift_z_selected(1)))
+        edit_menu.addAction(QAction("Mettre d&errière", self, shortcut="Ctrl+[",
+                                    triggered=lambda: self.canvas_scene.shift_z_selected(-1)))
+        edit_menu.addAction(QAction("Ordre &automatique", self, shortcut="Ctrl+\\",
+                                    triggered=self.canvas_scene.reset_z_selected))
 
         view_menu = bar.addMenu("&Vue")
         view_menu.addAction(QAction("Zoom +", self, shortcut="Ctrl++", triggered=self.canvas.zoom_in))
@@ -117,6 +144,110 @@ class MainWindow(QMainWindow):
             f"  |  {len(self.scene_model)} objet(s)"
         )
 
+    # --- document ---------------------------------------------------------------------------
+    def _on_model_changed(self) -> None:
+        if self._loading:
+            return
+        self.dirty = True
+        self._update_title()
+        self._update_status()
+
+    def _update_title(self) -> None:
+        name = self.path.stem if self.path else self.meta.name
+        self.setWindowTitle(f"{name}{' *' if self.dirty else ''} — Sprite Builder Studio")
+
+    def _confirm_discard(self) -> bool:
+        """True si on peut continuer (rien à perdre, enregistré, ou abandon accepté)."""
+        if not self.dirty:
+            return True
+        box = QMessageBox.question(
+            self, "Modifications non enregistrées",
+            "Enregistrer les modifications avant de continuer ?",
+            QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+        )
+        if box == QMessageBox.StandardButton.Save:
+            return self.save()
+        return box == QMessageBox.StandardButton.Discard
+
+    def new_project(self) -> bool:
+        if not self._confirm_discard():
+            return False
+        self._apply(ProjectMeta(), [], None)
+        return True
+
+    def _apply(self, meta: ProjectMeta, instances, path: Path | None) -> None:
+        self._loading = True
+        try:
+            self.scene_model.replace(instances)
+            self.canvas_scene.rebuild()
+        finally:
+            self._loading = False
+        self.meta, self.path, self.dirty = meta, path, False
+        self._update_title()
+        self._update_status()
+
+    def open_dialog(self) -> None:
+        if not self._confirm_discard():
+            return
+        file, _ = QFileDialog.getOpenFileName(
+            self, "Ouvrir un projet", "", f"Projet Sprite Builder Studio (*{EXTENSION})"
+        )
+        if file:
+            self.open_path(Path(file))
+
+    def open_path(self, path: Path) -> bool:
+        """Charge un projet. En cas d'erreur, le projet actuel reste intact."""
+        try:
+            result = load_project(path, self.library)
+        except ProjectError as exc:
+            QMessageBox.critical(self, "Ouverture impossible", str(exc))
+            return False
+        self._apply(result.meta, result.instances, Path(path))
+        notes = []
+        if result.missing_assets:
+            notes.append(f"{len(result.missing_assets)} image(s) absente(s) de la bibliothèque : "
+                         "les objets concernés sont conservés et affichés en rose avec un « ? ».")
+        if result.remapped:
+            notes.append(f"{result.remapped} objet(s) rattaché(s) à la bibliothèque de cet ordinateur.")
+        if notes:
+            QMessageBox.information(self, "Projet ouvert", "\n".join(notes))
+        return True
+
+    def save(self) -> bool:
+        if self.path is None:
+            return self.save_as()
+        return self.save_to(self.path)
+
+    def save_as(self) -> bool:
+        file, _ = QFileDialog.getSaveFileName(
+            self, "Enregistrer le projet sous", f"{self.meta.name}{EXTENSION}",
+            f"Projet Sprite Builder Studio (*{EXTENSION})",
+        )
+        if not file:
+            return False
+        path = Path(file)
+        if path.suffix.lower() != EXTENSION:
+            path = path.with_name(path.name + EXTENSION)
+        return self.save_to(path)
+
+    def save_to(self, path: Path) -> bool:
+        self.canvas_scene.commit_positions()
+        try:
+            if self.path is None or Path(path) != self.path:
+                self.meta.name = Path(path).stem
+            save_project(Path(path), self.meta, self.scene_model.all(), self.library)
+        except (OSError, ProjectError) as exc:
+            QMessageBox.critical(
+                self, "Enregistrement impossible",
+                f"{exc}\n\nLe fichier précédent n'a pas été modifié.",
+            )
+            return False
+        self.path, self.dirty = Path(path), False
+        self._update_title()
+        self.statusBar().showMessage(f"Enregistré : {path}", 4000)
+        return True
+
     # --- disposition --------------------------------------------------
     def _restore_layout(self) -> None:
         geo = self.prefs.get("window.geometry")
@@ -142,6 +273,9 @@ class MainWindow(QMainWindow):
         self.prefs.save()
 
     def closeEvent(self, event) -> None:
+        if not self._confirm_discard():
+            event.ignore()
+            return
         try:
             self.save_layout()
         except OSError as exc:

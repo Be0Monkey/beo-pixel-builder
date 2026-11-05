@@ -5,6 +5,7 @@ Ordre d'affichage (voir docs/specs, décision D-C) : Z manuel d'abord (0 par dé
 profondeur automatique (y du pivot), puis ordre d'insertion. Étages et calques : jalon J2.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from sbs.domain.ids import new_id
@@ -29,6 +30,24 @@ class Instance:
 class SceneModel:
     def __init__(self) -> None:
         self._instances: dict[str, Instance] = {}  # l'ordre du dict = ordre d'insertion
+        self._listeners: list[Callable[[], None]] = []
+
+    def add_listener(self, fn: Callable[[], None]) -> None:
+        self._listeners.append(fn)
+
+    def _notify(self) -> None:
+        for fn in list(self._listeners):
+            fn()
+
+    def replace(self, instances: list[Instance]) -> None:
+        """Remplace tout le contenu (chargement / nouveau projet). Une seule notification."""
+        new: dict[str, Instance] = {}
+        for inst in instances:
+            if inst.id in new:
+                raise ValueError("identifiant d'instance en double")
+            new[inst.id] = inst
+        self._instances = new
+        self._notify()
 
     def __len__(self) -> int:
         return len(self._instances)
@@ -47,17 +66,23 @@ class SceneModel:
         if inst.id in self._instances:
             raise ValueError("identifiant d'instance déjà utilisé")
         self._instances[inst.id] = inst
+        self._notify()
         return inst
 
     def set_position(self, inst_id: str, x: int, y: int) -> None:
         inst = self._instances[inst_id]
         inst.x, inst.y = _check_int("x", x), _check_int("y", y)
+        self._notify()
 
     def set_z_manual(self, inst_id: str, z: int) -> None:
         self._instances[inst_id].z_manual = _check_int("z", z)
+        self._notify()
 
     def remove(self, inst_ids) -> list[Instance]:
-        return [self._instances.pop(i) for i in list(inst_ids) if i in self._instances]
+        removed = [self._instances.pop(i) for i in list(inst_ids) if i in self._instances]
+        if removed:
+            self._notify()
+        return removed
 
     def draw_order(self) -> list[str]:
         """Du plus loin (dessiné en premier) au plus proche. Déterministe : tri stable."""

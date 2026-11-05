@@ -103,6 +103,24 @@ class CanvasScene(QGraphicsScene):
             self.refresh_z()
         return changed
 
+    def shift_z_selected(self, delta: int) -> int:
+        """Z manuel : +1 = devant, -1 = derrière (prime sur la profondeur automatique)."""
+        ids = self.selected_ids()
+        for inst_id in ids:
+            self.model.set_z_manual(inst_id, self.model.get(inst_id).z_manual + delta)
+        if ids:
+            self.refresh_z()
+        return len(ids)
+
+    def reset_z_selected(self) -> int:
+        """Retour à l'ordre automatique (Z manuel = 0)."""
+        ids = self.selected_ids()
+        for inst_id in ids:
+            self.model.set_z_manual(inst_id, 0)
+        if ids:
+            self.refresh_z()
+        return len(ids)
+
     def refresh_z(self) -> None:
         for rank, inst_id in enumerate(self.model.draw_order()):
             item = self.items_by_id.get(inst_id)

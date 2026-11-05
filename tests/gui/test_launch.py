@@ -16,7 +16,7 @@ def qapp():
 def test_fenetre_s_ouvre(qapp, tmp_path):
     w = MainWindow(Preferences(tmp_path / "p.json"), Library(tmp_path / "lib"))
     w.show()
-    assert w.windowTitle() == "Sprite Builder Studio"
+    assert w.windowTitle() == "Sans titre — Sprite Builder Studio"
     assert set(w.docks) == {"library", "properties", "floors"}
     w.close()
 

@@ -30,3 +30,4 @@ class Asset:
     revision: int = 1
     variants: tuple[Variant, ...] = ()
     extra: dict[str, Any] = field(default_factory=dict)  # champs du kit conservés tels quels
+    origin: str = ""  # ex. "kit"
