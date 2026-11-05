@@ -35,6 +35,7 @@ from sbs.services.project_io import (
 from sbs.services.preferences import Preferences
 from sbs.ui.floors_panel import FloorsPanel
 from sbs.ui.library_panel import LibraryPanel
+from sbs.ui.module_dialog import ModuleDialog
 
 _B64 = "utf-8"
 
@@ -138,6 +139,8 @@ class MainWindow(QMainWindow):
                                    triggered=self.canvas_scene.ungroup_selected)
         edit_menu.addAction(self.act_group)
         edit_menu.addAction(self.act_ungroup)
+        edit_menu.addAction(QAction("&Propriétés du module…", self, shortcut="F4",
+                                    triggered=self.edit_module_properties))
         edit_menu.addAction(QAction("&Sortir du groupe", self, triggered=self.canvas_scene.exit_group))
         edit_menu.addSeparator()
         edit_menu.addAction(QAction("Mettre &devant", self, shortcut="Ctrl+]",
@@ -341,6 +344,12 @@ class MainWindow(QMainWindow):
         parts = [n for n, on in (("Grille", self.canvas_scene.snap.grid),
                                  ("Bords", self.canvas_scene.snap.edges)) if on]
         return "+".join(parts) if parts else "aucun"
+
+    def edit_module_properties(self) -> None:
+        if self.canvas_scene.selected_asset() is None:
+            self.statusBar().showMessage("Sélectionne un ou plusieurs objets du même module.", 5000)
+            return
+        ModuleDialog(self.canvas_scene, self).exec()
 
     def group_selection(self) -> bool:
         error = self.canvas_scene.group_selected()

@@ -7,6 +7,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsPixmapItem, QGraphicsScene
 
 from sbs.canvas.pixmaps import PixmapCache
+from sbs.commands.assets import DetachAndEdit, EditSourceGeometry
 from sbs.commands.history import History
 from sbs.commands.instances import Macro, MoveInstances, RemoveInstances, SetZ
 from sbs.commands.structure import (
@@ -20,7 +21,7 @@ from sbs.domain.ids import new_id
 from sbs.domain.scene import Group, Instance, SceneModel, validate_grouping
 from sbs.domain.snapping import SnapResult, SnapSettings, compute_snap
 from sbs.services.clipboard_codec import decode_instances, encode_instances
-from sbs.services.library import Library
+from sbs.services.library import Library, LibraryError
 
 SCENE_HALF = 4096
 DIM_OPACITY = 0.35
@@ -68,6 +69,7 @@ class CanvasScene(QGraphicsScene):
         self._context_listeners: list[Callable[[], None]] = []
         self.setSceneRect(-SCENE_HALF, -SCENE_HALF, 2 * SCENE_HALF, 2 * SCENE_HALF)
         self.model.add_listener(self.sync)
+        self.library.add_listener(self.refresh_asset)
 
     def add_context_listener(self, fn: Callable[[], None]) -> None:
         self._context_listeners.append(fn)
@@ -86,6 +88,13 @@ class CanvasScene(QGraphicsScene):
         self.addItem(item)
         self.items_by_id[inst.id] = item
         return item
+
+    def refresh_asset(self, asset_uuid: str) -> None:
+        """La ressource a changé (pivot, ancrages) : on reconstruit ses items."""
+        for inst_id, item in list(self.items_by_id.items()):
+            if item.asset_uuid == asset_uuid:
+                self.removeItem(item)
+                del self.items_by_id[inst_id]
 
     def sync(self) -> None:
         """Aligne les items sur le modèle (ajouts, suppressions, positions, état, ordre)."""
@@ -487,3 +496,32 @@ class CanvasScene(QGraphicsScene):
     def duplicate_selected(self, offset: int = 8) -> int:
         text = self.copy_payload()
         return self.paste_payload(text, offset, offset, "Dupliquer")[0] if text else 0
+
+    # --- ressources : source commune ou instance seule -------------------------------------
+    def count_uses(self, asset_uuid: str) -> int:
+        return sum(1 for i in self.model.all() if i.asset_uuid == asset_uuid)
+
+    def selected_asset(self):
+        """Ressource commune de la sélection, ou None si vide / mélangée."""
+        uuids = {i.asset_uuid for i in self.selection_in_model_order()}
+        return self.library.get(uuids.pop()) if len(uuids) == 1 else None
+
+    def edit_geometry(self, scope: str, pivot: tuple[int, int], anchors) -> str | None:
+        """scope : "source" (toutes les utilisations) ou "instance" (sélection seulement).
+        Renvoie None si fait, sinon un message d'erreur."""
+        asset = self.selected_asset()
+        ids = [i.id for i in self.selection_in_model_order()]
+        if asset is None or not ids:
+            return "Sélectionne un ou plusieurs objets du même module."
+        try:
+            if scope == "source":
+                cmd = EditSourceGeometry(self.library, asset.uuid, pivot, anchors, ids)
+            elif scope == "instance":
+                cmd = DetachAndEdit(self.library, ids, pivot, anchors)
+            else:
+                return "Portée inconnue."
+            self.history.execute(cmd)
+        except (ValueError, LibraryError) as exc:
+            return str(exc)
+        self.select_ids(ids)
+        return None

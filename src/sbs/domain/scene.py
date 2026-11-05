@@ -249,6 +249,17 @@ class SceneModel:
         inst.floor_id, inst.layer_id = floor_id, layer_id
         self._notify()
 
+    def set_asset(self, inst_id: str, asset_uuid: str) -> None:
+        """Rattache l'instance à une autre ressource (détachement, remplacement)."""
+        if not isinstance(asset_uuid, str) or not asset_uuid:
+            raise ValueError("identifiant de ressource invalide")
+        self._instances[inst_id].asset_uuid = asset_uuid
+        self._notify()
+
+    def touch(self) -> None:
+        """Prévient les écouteurs sans rien changer (ex. une ressource a été modifiée)."""
+        self._notify()
+
     def remove(self, inst_ids) -> list[Instance]:
         removed = [self._instances.pop(i) for i in list(inst_ids) if i in self._instances]
         if removed:

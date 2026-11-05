@@ -72,3 +72,9 @@ Ces points sont des décisions de travail : ils restent modifiables, et priment 
 
 ## Si le dossier original est retrouvé un jour
 Comparer point par point Q17–Q51, puis mettre à jour uniquement les exigences impactées ; préserver le reste du projet et les tests.
+
+## Notes J3a (modules)
+- Pivot et ancrages nommés éditables (F4 : Propriétés du module). Portée au choix : toutes les utilisations (source, annulable) ou sélection seulement (copie de la ressource, origine « local »).
+- Changer le pivot de la source déplace visuellement les sprites (la position d'une instance est celle de son pivot).
+- Bibliothèque v2 (colonne ancrages, migration automatique).
+

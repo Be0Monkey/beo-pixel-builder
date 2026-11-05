@@ -12,6 +12,14 @@ class Variant:
 
 
 @dataclass(frozen=True)
+class Anchor:
+    """Point nommé du module (ex. « mur_haut »), en pixels depuis le coin haut-gauche de l'image."""
+    name: str
+    x: int
+    y: int
+
+
+@dataclass(frozen=True)
 class Asset:
     uuid: str
     source_id: str  # ex. "angle_rdc_droit" (id du kit) - jamais une clé primaire
@@ -31,6 +39,7 @@ class Asset:
     variants: tuple[Variant, ...] = ()
     extra: dict[str, Any] = field(default_factory=dict)  # champs du kit conservés tels quels
     origin: str = ""  # ex. "kit"
+    anchors: tuple[Anchor, ...] = ()
 
     def image_for(self, variant: str | None) -> str:
         """Chemin de l'image à afficher pour une variante (base si absente ou inconnue)."""
