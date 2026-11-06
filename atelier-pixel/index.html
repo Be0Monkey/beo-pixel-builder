@@ -159,6 +159,9 @@ button { cursor: pointer; }
 .row input[type="number"] { width: 78px; padding: 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
 .warn { color: var(--danger); font-size: 13px; margin: 0 0 12px; }
 .dlgfoot { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.exp .sub { font: 700 12px var(--font-ui); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 4px 0 8px; }
+.shares { display: grid; gap: 6px; margin-bottom: 12px; }
+.shares .btn { text-align: left; }
 .exp img { image-rendering: pixelated; max-width: 100%; max-height: 160px; display: block; margin: 0 auto 12px; background: var(--stage); border-radius: 6px; }
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 9px 14px; border-radius: 8px; font-size: 13.5px; z-index: 60; max-width: calc(100% - 32px); text-align: center; }
 
@@ -190,7 +193,7 @@ button { cursor: pointer; }
       <button class="btn primary" id="bSave">Enregistrer</button>
       <button class="btn" id="bExport">Exporter PNG</button>
     </div>
-    <input id="file" type="file" accept="image/png,image/gif,image/webp,image/jpeg" hidden>
+    <input id="file" type="file" accept="image/png,image/gif,image/webp,image/jpeg,.json,application/json" hidden>
   </header>
 
   <nav class="tools" id="tools" aria-label="Outils"></nav>
@@ -275,6 +278,8 @@ button { cursor: pointer; }
     <img id="expImg" alt="Aperçu de l'export">
     <p class="note" id="expNote"></p>
     <div class="presets" id="expBtns"></div>
+    <h3 class="sub">Envoyer ou garder</h3>
+    <div class="shares" id="expShare"></div>
     <div class="dlgfoot"><button class="btn" id="expClose">Fermer</button></div>
   </div>
 </div>
@@ -737,6 +742,10 @@ $('#bOpen').onclick = () => $('#file').click();
 $('#file').onchange = e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
   const r = new FileReader();
+  if (/\.json$/i.test(f.name) || f.type === 'application/json') {
+    r.onload = () => openProjectText(String(r.result), f.name);
+    r.readAsText(f); return;
+  }
   r.onload = () => loadImage(r.result).then(res => {
     if (!res) return toast('Image trop grande (128 × 128 pixels maximum).');
     currentId = null; dirtySave = true; $('#name').value = f.name.replace(/\.[^.]+$/, '').slice(0, 40) || 'sans-titre';
@@ -744,6 +753,18 @@ $('#file').onchange = e => {
   }).catch(() => toast("Impossible de lire cette image."));
   r.readAsDataURL(f);
 };
+async function openProjectText(txt, fname) {
+  try {
+    const d = JSON.parse(txt);
+    const okPng = v => typeof v === 'string' && v.startsWith('data:image/png;base64,') && v.length < 4e6;
+    if (!d || d.app !== 'atelier-pixel' || !Array.isArray(d.layers) || d.layers.length < 1 || d.layers.length > 8 ||
+        !Number.isInteger(d.w) || !Number.isInteger(d.h) || d.w < 1 || d.h < 1 || d.w > 128 || d.h > 128 || !d.layers.every(l => l && okPng(l.png))) throw new Error('format');
+    const res = await recToSprite({ w: d.w, h: d.h, layers: d.layers.map(l => ({ name: String(l.name || 'Calque').slice(0, 24), vis: l.vis !== false, png: l.png })), png: d.layers[0].png });
+    if (!res || res.layers.some(l => l.pix.length !== d.w * d.h)) throw new Error('taille');
+    currentId = null; dirtySave = true; $('#name').value = String(d.name || fname.replace(/\.[^.]+$/, '')).slice(0, 40) || 'sans-titre';
+    setSprite(res.w, res.h, res.layers); toast('Projet ouvert');
+  } catch (er) { toast("Ce fichier n'est pas un projet Atelier Pixel valide."); }
+}
 function loadImage(src) {
   return new Promise((ok, ko) => {
     const im = new Image(); im.onerror = ko;
@@ -757,25 +778,53 @@ function loadImage(src) {
 }
 const slug = () => ($('#name').value.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'sprite');
 $('#bExport').onclick = () => {
-  renderSprite(); $('#expImg').src = sc.toDataURL('image/png'); $('#expNote').textContent = 'Choisis la taille du fichier. Si le téléchargement ne démarre pas, appuie longtemps sur l\'image ci-dessus.';
+  renderSprite(); $('#expImg').src = sc.toDataURL('image/png'); $('#expNote').textContent = 'Choisis la taille du fichier PNG. « Taille réelle » est celle à utiliser dans le jeu.';
   const box = $('#expBtns'); box.innerHTML = '';
   [1, 4, 8].forEach(n => { const b = document.createElement('button'); b.className = 'btn'; b.innerHTML = `×${n}<small>${S.w * n}×${S.h * n}</small>`; b.onclick = () => doExport(n); box.appendChild(b); });
+  const sh = $('#expShare'); sh.innerHTML = '';
+  const add = (label, fn) => { const b = document.createElement('button'); b.className = 'btn'; b.textContent = label; b.onclick = fn; sh.appendChild(b); };
+  const canShare = !!(navigator.share && navigator.canShare);
+  if (canShare) add("Partager l'image (WhatsApp, e-mail…)", () => shareFile('png'));
+  if (canShare) add('Partager le projet avec ses calques', () => shareFile('project'));
+  add('Enregistrer le projet avec ses calques (.json)', () => saveFile('project'));
   $('#ovExp').hidden = false;
 };
 $('#expClose').onclick = () => { $('#ovExp').hidden = true; };
-async function doExport(n) {
+const projectName = () => slug() + '.atelier.json';
+function projectBlob() {
+  renderSprite();
+  const o = { app: 'atelier-pixel', v: 1, name: $('#name').value.trim() || 'sans-titre', w: S.w, h: S.h, layers: S.layers.map(l => ({ name: l.name, vis: l.vis, png: layerPng(l) })) };
+  return new Blob([JSON.stringify(o)], { type: 'application/json' });
+}
+async function pngBlob(n) {
   const c = document.createElement('canvas'); c.width = S.w * n; c.height = S.h * n; const x = c.getContext('2d'); x.imageSmoothingEnabled = false; x.drawImage(sc, 0, 0, c.width, c.height);
-  const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+  return new Promise(r => c.toBlob(r, 'image/png'));
+}
+async function saveBlob(blob, filename) {
+  const dl = window.claude && await window.claude.use('downloads');
+  if (!dl) {
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); return;
+  }
+  await dl.save({ filename, data: blob });
+}
+async function saveFile(kind, n = 1) {
   try {
-    const dl = window.claude && await window.claude.use('downloads');
-    if (!dl) {
-      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = slug() + (n > 1 ? '-x' + n : '') + '.png';
-      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-      toast('Téléchargement lancé'); dirtySave = false; return;
-    }
-    await dl.save({ filename: slug() + (n > 1 ? '-x' + n : '') + '.png', data: blob });
+    if (kind === 'project') await saveBlob(projectBlob(), projectName());
+    else await saveBlob(await pngBlob(n), slug() + (n > 1 ? '-x' + n : '') + '.png');
     toast('Fichier enregistré'); dirtySave = false;
-  } catch (e) { if (!e || e.code !== 'declined') $('#expNote').textContent = "Le téléchargement a échoué : appuie longtemps sur l'image pour l'enregistrer."; }
+  } catch (e) { if (!e || e.code !== 'declined') $('#expNote').textContent = "L'enregistrement a échoué : essaie « Partager », ou appuie longtemps sur l'image."; }
+}
+const doExport = n => saveFile('png', n);
+async function shareFile(kind) {
+  try {
+    const blob = kind === 'project' ? projectBlob() : await pngBlob(1);
+    const name = kind === 'project' ? projectName() : slug() + '.png';
+    const file = new File([blob], name, { type: kind === 'project' ? 'application/json' : 'image/png' });
+    if (!navigator.canShare({ files: [file] })) { toast("Ce téléphone ne peut pas partager ce fichier : utilise « Enregistrer »."); return; }
+    await navigator.share({ files: [file], title: 'Sprite ' + ($('#name').value.trim() || 'sans-titre') });
+    dirtySave = false;
+  } catch (e) { if (e && e.name !== 'AbortError') toast("Le partage a échoué : utilise « Enregistrer »."); }
 }
 
 function layerPng(l) {
