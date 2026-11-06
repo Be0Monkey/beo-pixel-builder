@@ -3,8 +3,8 @@
 import base64
 from pathlib import Path
 
-from PySide6.QtCore import QByteArray, QMimeData, Qt
-from PySide6.QtGui import QAction
+from PySide6.QtCore import QByteArray, QMimeData, Qt, QUrl
+from PySide6.QtGui import QAction, QDesktopServices
 from PySide6.QtWidgets import (
     QDockWidget,
     QApplication,
@@ -60,6 +60,8 @@ def _placeholder(text: str) -> QLabel:
     label.setWordWrap(True)
     return label
 
+
+ATELIER_PIXEL_URL = "https://be0monkey.github.io/beo-pixel-builder/atelier-pixel/"
 
 class MainWindow(SessionMixin, QMainWindow):
     def __init__(self, prefs: Preferences, library: Library):
@@ -225,6 +227,8 @@ class MainWindow(SessionMixin, QMainWindow):
         help_menu.addAction(QAction("&Guide utilisateur", self, shortcut="F1", triggered=self.open_guide))
         help_menu.addAction(QAction("&Raccourcis clavier…", self,
                                     triggered=lambda: self.open_options(start_tab=1)))
+        help_menu.addAction(QAction("Ouvrir l'&Atelier Pixel (navigateur, téléphone)", self,
+                                    triggered=self.open_atelier_pixel))
         help_menu.addAction(QAction("À propos", self, triggered=self._about))
 
     def _build_toolbar(self) -> None:
@@ -305,6 +309,10 @@ class MainWindow(SessionMixin, QMainWindow):
         self.meta, self.path = meta, path
         self._update_title()
         self._update_status()
+
+    def open_atelier_pixel(self) -> None:
+        """L'Atelier Pixel (dessin + assemblage simplifié) est la version web du même projet."""
+        QDesktopServices.openUrl(QUrl(ATELIER_PIXEL_URL))
 
     # --- échanges avec le téléphone --------------------------------------------------------------
     def export_phone_library(self) -> None:

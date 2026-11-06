@@ -122,7 +122,8 @@ def parse_scene_pack(text: str) -> ScenePack:
         if mid in pack.modules:
             raise PackError(f"paquet invalide : module en double ({mid})")
         w, h = _int(m.get("w"), "w", 1, MAX_SIDE), _int(m.get("h"), "h", 1, MAX_SIDE)
-        px, py = _int(m.get("px"), "px", 0, w - 1), _int(m.get("py"), "py", 0, h - 1)
+        # le pivot peut être hors de l'image (ex. sur le bord bas : y = hauteur)
+        px, py = _int(m.get("px"), "px", -MAX_SIDE, 2 * MAX_SIDE), _int(m.get("py"), "py", -MAX_SIDE, 2 * MAX_SIDE)
         try:
             png = base64.b64decode(_text(m.get("png"), "png", 4 * MAX_PNG_BYTES), validate=True)
         except (binascii.Error, ValueError) as exc:

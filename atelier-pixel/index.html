@@ -339,8 +339,8 @@ body:not([data-mode="asm"]) #asm { display: none; }
     </div>
     <div class="panel" id="ap-mods">
       <div id="amEmpty" class="empty" hidden>
-        <p style="margin:0 0 10px"><b>Aucun module pour l'instant.</b> Dans Sprite Builder Studio sur ton PC : Fichier, « Exporter la bibliothèque pour le téléphone ». Envoie le fichier sur ce téléphone, puis importe-le ici.</p>
-        <label class="btn primary" style="display:inline-block">Importer la bibliothèque<input type="file" accept=".json,application/json" class="aLibFile" hidden></label>
+        <p style="margin:0 0 10px"><b>Aucun module pour l'instant.</b> Touche « Charger les modules de départ » (téléchargement d'environ 1,5 Mo). Tu peux aussi importer un fichier exporté depuis Sprite Builder Studio sur PC.</p>
+        <div class="stack"><button class="btn primary" id="aStarter">Charger les modules de départ</button><label class="btn" style="text-align:center">Importer un fichier de bibliothèque<input type="file" accept=".json,application/json" class="aLibFile" hidden></label></div>
       </div>
       <div id="amMain">
         <div class="mfilters"><input id="aSearch" type="search" placeholder="Chercher un module" aria-label="Chercher un module"><select id="aCat" aria-label="Catégorie"></select></div>
@@ -363,6 +363,7 @@ body:not([data-mode="asm"]) #asm { display: none; }
       <section><h3>Modules</h3>
         <p class="note" id="aLibNote"></p>
         <div class="stack">
+          <button class="btn" id="aStarter2">Charger les modules de départ</button>
           <label class="btn" style="text-align:center">Importer la bibliothèque du PC<input type="file" accept=".json,application/json" class="aLibFile" hidden></label>
           <label class="btn" style="text-align:center">Ajouter un PNG comme module<input type="file" accept="image/png" id="aPngFile" hidden></label>
         </div>
@@ -1421,7 +1422,7 @@ const b64ToBlob = b64 => { const bin = atob(b64), a = new Uint8Array(bin.length)
 const okInt = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
 function checkModule(m) {
   return m && typeof m.id === 'string' && m.id.length > 0 && m.id.length <= 64 && typeof m.png === 'string' && m.png.length < 12e6 &&
-    okInt(m.w, 1, 4096) && okInt(m.h, 1, 4096) && okInt(m.px, 0, m.w - 1) && okInt(m.py, 0, m.h - 1);
+    okInt(m.w, 1, 4096) && okInt(m.h, 1, 4096) && okInt(m.px, -4096, 8192) && okInt(m.py, -4096, 8192);
 }
 async function importLibrary(file) {
   const prog = $('#aProg'), bar = $('i', prog); prog.hidden = false; bar.style.width = '2%';
@@ -1446,6 +1447,14 @@ async function importLibrary(file) {
   } catch (e) { toast("Ce fichier n'est pas une bibliothèque valide de Sprite Builder Studio."); }
   prog.hidden = true;
 }
+async function loadStarter() {
+  try {
+    const r = await fetch('modules-depart.json', { cache: 'no-cache' });
+    if (!r.ok) throw new Error('http');
+    await importLibrary(await r.blob());
+  } catch (e) { toast("Impossible de télécharger les modules de départ. Vérifie la connexion, ou importe un fichier."); }
+}
+$('#aStarter').onclick = loadStarter; $('#aStarter2').onclick = loadStarter;
 $$('.aLibFile').forEach(inp => inp.onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) importLibrary(f); });
 $('#aPngFile').onchange = async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;

@@ -91,7 +91,7 @@ def test_paquet_invalide_est_refuse_sans_toucher_la_bibliotheque(tmp_path):
     cases = [
         scene_doc([bad_png], []),
         scene_doc([wrong_size], []),
-        scene_doc([module("a", pivot=(99, 0))], []),
+        scene_doc([module("a", pivot=(99999, 0))], []),
         scene_doc([module("a"), module("a")], []),
         scene_doc([module("a")], [{"module": "inconnu", "x": 0, "y": 0}]),
         scene_doc([module("a")], [{"module": "a", "x": 1.5, "y": 0}]),
@@ -120,3 +120,14 @@ def test_echec_en_cours_dimport_annule_les_modules_deja_crees(tmp_path):
     with pytest.raises(P.PackError, match="disque plein"):
         P.import_scene_pack(lib, pack)
     assert lib.count() == 0
+
+
+def test_pivot_sur_le_bord_bas_hors_image_est_accepte(tmp_path):
+    """Cas réel du kit : pivot en y = hauteur (juste sous l'image)."""
+    lib = Library(tmp_path / "lib")
+    text = scene_doc([module("m1", size=(16, 34), pivot=(0, 34))], [{"module": "m1", "x": 5, "y": 6}])
+    pack = P.parse_scene_pack(text)
+    assert (pack.modules["m1"].px, pack.modules["m1"].py) == (0, 34)
+    res = P.import_scene_pack(lib, pack)
+    a = lib.list_assets()[0]
+    assert (a.pivot_x, a.pivot_y) == (0, 34) and len(res.instances) == 1

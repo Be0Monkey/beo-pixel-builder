@@ -34,3 +34,9 @@ Le paquet n'est pas signé numériquement : Windows SmartScreen peut afficher un
 
 ## État
 Jalons **J0 à J7** réalisés (voir `docs/specs/06_Decisions_et_tracabilite.md` pour les décisions et les limites connues).
+
+## Atelier Pixel (version navigateur et téléphone)
+Dans le même dépôt : `atelier-pixel/` — dessin de sprites (calques, palette) et assemblage simplifié (poser, déplacer, ordre, point d'appui), en une seule page web, sans installation.
+- En ligne : https://be0monkey.github.io/beo-pixel-builder/atelier-pixel/ (aussi depuis Sprite Builder Studio : Aide › Ouvrir l'Atelier Pixel).
+- Échanges avec le PC : « modules de départ » (`atelier-pixel/modules-depart.json`, export de la bibliothèque), scène renvoyée au PC par Fichier › Importer une scène du téléphone (`src/sbs/services/phone_pack.py`).
+- Mise à jour du site : modifier les fichiers de `atelier-pixel/` puis pousser sur `main` (GitHub Pages).
