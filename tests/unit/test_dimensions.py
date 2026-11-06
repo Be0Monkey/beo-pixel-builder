@@ -107,42 +107,53 @@ def test_limites_et_facteurs_invalides(tmp_path):
     assert RZ.label("up", 3) == "×3" and RZ.label("down", 2) == "÷2"
 
 
-# ------------------------------------------------------------------ perspective (mur qui s'éloigne)
-def test_perspective_tailles_decroissantes_et_pieces_jointives():
-    pieces = R.perspective((0, 100), 6, (32, -16), 50, levels=6)
-    scales = [p[2] for p in pieces]
-    assert scales[0] == 1.0 and scales[-1] == 0.5
-    assert scales == sorted(scales, reverse=True)  # jamais plus grand en s'éloignant
-    xs = [p[0] for p in pieces]
-    gaps = [b - a for a, b in zip(xs, xs[1:])]
-    assert gaps == sorted(gaps, reverse=True) and gaps[0] <= 32 and gaps[-1] >= 16  # l'avancée rétrécit aussi
-    assert all(b[1] < a[1] for a, b in zip(pieces, pieces[1:]))  # monte à l'écran : s'éloigne
+# ------------------------------------------------------------------ mur en perspective (bords alignés)
+def test_mur_raccords_exacts_et_convergence():
+    ps = R.perspective_wall((0, 100), 6, 32, -50, 50)
+    assert len(ps) == 6 and ps[0].s_left == 1.0 and abs(ps[-1].s_right - 0.5) < 1e-9
+    for a, b in zip(ps, ps[1:]):
+        assert a.x + a.width == b.x  # pas de trou en largeur
+        assert a.y + a.drop == b.y  # le bas du bord droit = le bas du bord gauche suivant
+        assert a.s_right == b.s_left  # même hauteur au raccord
+    widths = [p.width for p in ps]
+    assert widths == sorted(widths, reverse=True) and widths[0] <= 32  # raccourci de perspective
+    assert all(b.y < a.y for a, b in zip(ps, ps[1:]))  # le sol monte : s'éloigne
 
 
-def test_perspective_paliers_limites_et_cas_simples():
-    pieces = R.perspective((0, 0), 40, (10, -5), 25, levels=4)
-    assert len({p[2] for p in pieces}) <= 4  # peu de modules à créer
-    assert R.perspective((5, 5), 1, (10, 10), 50) == [(5, 5, 1.0)]
-    flat = R.perspective((0, 0), 4, (8, 0), 100)
-    assert {p[2] for p in flat} == {1.0} and [p[0] for p in flat] == [0, 8, 16, 24]
-    for bad in ({"last_percent": 5}, {"last_percent": 101}, {"levels": 1}, {"levels": 13}, {"count": 0}):
-        args = dict(origin=(0, 0), count=5, step=(8, -4), last_percent=50, levels=6) | bad
+def test_mur_cas_simples_et_limites():
+    one = R.perspective_wall((5, 7), 1, 10, 0, 100)
+    assert one == [R.WallPiece(5, 7, 10, 1.0, 1.0, 0)]
+    for bad in ({"last_percent": 5}, {"last_percent": 101}, {"count": 0}, {"count": 41}, {"piece_width": 0},
+                {"slope_percent": 301}):
+        args = dict(origin=(0, 0), count=5, piece_width=8, slope_percent=-50, last_percent=50) | bad
         with pytest.raises(ValueError):
-            R.perspective(**args)
+            R.perspective_wall(**args)
 
 
-def test_create_scaled_reduit_en_gardant_le_bas_et_reutilise(tmp_path):
-    lib, a, src = make_asset(tmp_path, size=(8, 10), pivot=(4, 9))
-    half, created = RZ.create_scaled(lib, a.uuid, 0.5)
-    assert created and (half.width, half.height) == (4, 5) and half.name == "mur 50%"
-    assert half.pivot_y == 4  # le bas du sprite reste le bas
-    img = Image.open(lib.abs_path(half.image_path)).convert("RGBA")
-    assert {img.getpixel((x, y)) for x in range(4) for y in range(5)} <= {
-        src.getpixel((x, y)) for x in range(8) for y in range(10)}  # aucune couleur inventée
-    again, created2 = RZ.create_scaled(lib, a.uuid, 0.5)
-    assert not created2 and again.uuid == half.uuid and lib.count() == 2  # réutilisé
-    same, c3 = RZ.create_scaled(lib, a.uuid, 1.0)
-    assert same.uuid == a.uuid and not c3
-    for bad in (0.05, 1.5, True, "x"):
-        with pytest.raises(ValueError, match="comprise"):
-            RZ.create_scaled(lib, a.uuid, bad)
+def test_warp_wall_piece_hauteurs_et_couleurs(tmp_path):
+    lib, a, src = make_asset(tmp_path, size=(8, 10), pivot=(0, 9))
+    img, pivot = RZ.warp_wall_piece(src, 8, 1.0, 0.5, -4)
+    alpha = [[img.getpixel((x, y))[3] for y in range(img.height)] for x in range(img.width)]
+
+    def col_height(x):
+        ys = [y for y, v in enumerate(alpha[x]) if v]
+        return (max(ys) - min(ys) + 1) if ys else 0
+    assert col_height(0) >= 9 and col_height(7) <= 6  # la hauteur diminue vers la droite
+    assert pivot[0] == 0 and pivot[1] >= 0
+    seen = {img.getpixel((x, y))[:3] for x in range(img.width) for y in range(img.height)
+            if img.getpixel((x, y))[3]}
+    assert seen <= {src.getpixel((x, y))[:3] for x in range(8) for y in range(10)}  # aucune couleur inventée
+    with pytest.raises(ValueError):
+        RZ.warp_wall_piece(src, 0, 1.0, 0.5, 0)
+
+
+def test_create_wall_piece_reutilise(tmp_path):
+    lib, a, _ = make_asset(tmp_path, size=(8, 10), pivot=(0, 9))
+    m, created = RZ.create_wall_piece(lib, a.uuid, 8, 1.0, 0.5, -4, "1/1")
+    assert created and "perspective" in m.name
+    again, created2 = RZ.create_wall_piece(lib, a.uuid, 8, 1.0, 0.5, -4, "1/1")
+    assert not created2 and again.uuid == m.uuid
+    with pytest.raises(ValueError, match="absent"):
+        RZ.create_wall_piece(lib, "inconnu", 8, 1.0, 0.5, 0)
+
+

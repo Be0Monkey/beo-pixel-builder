@@ -57,7 +57,7 @@ class RepeatDialog(QDialog):
         self.mode.addItem("En grille", "grid")
         self.mode.addItem("Le long d'un tracé", "path")
         self.mode.addItem("Couvrir une longueur", "cover")
-        self.mode.addItem("Perspective (s'éloigne en diagonale)", "persp")
+        self.mode.addItem("Mur en perspective (s'éloigne en diagonale)", "persp")
         self.ox, self.oy = _spin(value=origin[0]), _spin(value=origin[1])
         self.count = _spin(1, R.MAX_COUNT, 5)
         self.sx, self.sy = _spin(value=32), _spin(value=0)
@@ -72,7 +72,10 @@ class RepeatDialog(QDialog):
         self.amount = _spin(1, R.MAX_COUNT, 16)
         self.last_pct = _spin(10, 100, 50)
         self.last_pct.setSuffix(" %")
-        self.levels = _spin(2, 12, 6)
+        self.slope = _spin(-300, 300, -50)
+        self.slope.setSuffix(" %")
+        self.slope.setToolTip("Pente du sol : −50 % = le mur monte d'1 pixel pour 2 pixels vers la droite.")
+        self.wall_count = _spin(1, R.MAX_WALL_PIECES, 5)
         self.length = _spin(1, 100000, 128)
         self.axis = QComboBox()
         self.axis.addItem("Horizontal (largeur)", "h")
@@ -98,7 +101,8 @@ class RepeatDialog(QDialog):
             "origin": [("Départ X", self.ox), ("Départ Y", self.oy)],
             "line": [("Nombre", self.count), ("Pas X", self.sx), ("Pas Y", self.sy)],
             "grid": [("Colonnes", self.cols), ("Lignes", self.rows)],
-            "persp": [("Taille de la dernière pièce", self.last_pct), ("Paliers de taille", self.levels)],
+            "persp": [("Nombre de pièces", self.wall_count), ("Pente du sol", self.slope),
+                      ("Hauteur au loin", self.last_pct)],
             "cover": [("Longueur à couvrir (px)", self.length), ("Sens", self.axis),
                       ("Largeur/hauteur d'une pièce (px)", self.piece), ("Ajustement", self.fit)],
             "path": [("Points du tracé", self.points), ("", self.smooth), ("Répartir par", self.by),
@@ -112,8 +116,6 @@ class RepeatDialog(QDialog):
                 self._rows.setdefault(key, []).append((lab, w))
         # la grille réutilise « Pas X / Pas Y » : un seul jeu de champs
         self._rows["grid"] += self._rows["line"][1:]
-        # la perspective réutilise « Nombre / Pas X / Pas Y » (pas mesurés à taille normale)
-        self._rows["persp"] += self._rows["line"]
         lay = QVBoxLayout(self)
         lay.addLayout(form)
         lay.addWidget(use_sel)
@@ -125,7 +127,7 @@ class RepeatDialog(QDialog):
         lay.addLayout(row)
 
         for w in (self.ox, self.oy, self.count, self.sx, self.sy, self.cols, self.rows, self.amount,
-                  self.length, self.piece, self.last_pct, self.levels):
+                  self.length, self.piece, self.last_pct, self.slope, self.wall_count):
             w.valueChanged.connect(self.update_preview)
         self.points.textChanged.connect(self.update_preview)
         self.smooth.toggled.connect(self.update_preview)
@@ -144,7 +146,7 @@ class RepeatDialog(QDialog):
         if mode == "grid":
             return R.grid(origin, self.cols.value(), self.rows.value(), step)
         if mode == "persp":
-            return [(x, y) for x, y, _ in self.perspective_pieces()]
+            return [(p.x, p.y) for p in self.wall_pieces()]
         if mode == "cover":
             return R.cover(origin, self.length.value(), self.piece.value(),
                            self.axis.currentData() == "h", self.fit.currentData())
@@ -153,9 +155,11 @@ class RepeatDialog(QDialog):
             return R.path(pts, self.smooth.isChecked(), spacing=self.amount.value())
         return R.path(pts, self.smooth.isChecked(), count=self.amount.value())
 
-    def perspective_pieces(self) -> list[tuple[int, int, float]]:
-        origin, step = (self.ox.value(), self.oy.value()), (self.sx.value(), self.sy.value())
-        return R.perspective(origin, self.count.value(), step, self.last_pct.value(), self.levels.value())
+    def wall_pieces(self):
+        asset = self.scene.library.get(self.asset_uuid)
+        width = asset.width if asset else 16
+        return R.perspective_wall((self.ox.value(), self.oy.value()), self.wall_count.value(), width,
+                                  self.slope.value(), self.last_pct.value())
 
     def _mode_changed(self) -> None:
         mode = self.mode.currentData()
@@ -191,8 +195,8 @@ class RepeatDialog(QDialog):
             reach = self.length.value() if self.fit.currentData() == "exact" else len(pos) * self.piece.value()
             cover = f" — {reach} px couverts sur {self.length.value()}"
         elif self.mode.currentData() == "persp":
-            cover = (f" — de 100 % à {self.last_pct.value()} % en {self.levels.value()} paliers "
-                     "(l'aperçu montre les positions à taille normale)")
+            cover = (f" — mur de 100 % à {self.last_pct.value()} % de hauteur ; départ = coin bas-gauche "
+                     "(l'aperçu montre seulement les positions)")
         self.info.setText(f"{len(pos)} objet(s){extra}{cover}")
 
     def points_from_selection(self) -> None:
@@ -206,7 +210,7 @@ class RepeatDialog(QDialog):
             self.info.setText(str(exc))
             return str(exc)
         if self.mode.currentData() == "persp":
-            err = self.scene.place_perspective(self.asset_uuid, self.perspective_pieces(), self.group.isChecked())
+            err = self.scene.place_wall(self.asset_uuid, self.wall_pieces(), self.group.isChecked())
         else:
             err = self.scene.place_repeated(self.asset_uuid, self.variant, pos, self.group.isChecked())
         self.info.setText(err or f"{len(pos)} objet(s) placé(s) (Ctrl+Z pour annuler).")

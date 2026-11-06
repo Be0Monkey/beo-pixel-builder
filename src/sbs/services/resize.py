@@ -88,53 +88,63 @@ def create_resized(library: Library, asset_uuid: str, mode: str, k: int):
         raise ValueError(str(exc)) from exc
 
 
-def create_scaled(library: Library, asset_uuid: str, factor: float):
-    """Version réduite d'un module (facteur 0,1 à 1) en voisin le plus proche, pour simuler l'éloignement.
-    Réutilise un module identique déjà présent. Renvoie (module, créé?). Lève ValueError."""
+def warp_wall_piece(src: Image.Image, width: int, s_left: float, s_right: float, drop: int):
+    """Déforme un module en « tranche de mur » en perspective, voisin le plus proche (pixels nets, aucune couleur
+    inventée). Chaque colonne a sa hauteur (de s_left à s_right fois la hauteur d'origine) et son bas décalé
+    (de 0 à `drop`). Renvoie (image RGBA, pivot) ; le pivot est le coin bas-gauche, sur la ligne du sol."""
+    import numpy as np
+    src = src.convert("RGBA")
+    w0, h0 = src.size
+    if width < 1 or width > MAX_SIDE:
+        raise ValueError("largeur de pièce invalide")
+    t = (np.arange(width) + 0.5) / width
+    s = s_left + (s_right - s_left) * t
+    height = h0 * s  # hauteur de chaque colonne
+    bottom = drop * t  # bas de chaque colonne, par rapport au coin bas-gauche (y vers le bas)
+    top_c = bottom - height
+    top = int(np.floor(top_c.min()))
+    bot = int(np.ceil(max(bottom.max(), 0.0)))
+    out_h = max(1, bot - top)
+    if out_h > MAX_SIDE:
+        raise ValueError(f"mur trop haut ({out_h} px ; maximum {MAX_SIDE})")
+    rows = top + np.arange(out_h) + 0.5
+    v = (rows[:, None] - top_c[None, :]) / height[None, :]
+    mask = (v >= 0) & (v < 1)
+    ys = np.clip(np.floor(v * h0).astype(int), 0, h0 - 1)
+    xs = np.clip((np.arange(width) * w0 // width), 0, w0 - 1)
+    arr = np.asarray(src)
+    out = arr[ys, xs[None, :]].copy()
+    out[~mask] = 0
+    return Image.fromarray(out, "RGBA"), (0, -top)
+
+
+def create_wall_piece(library: Library, asset_uuid: str, width: int, s_left: float, s_right: float,
+                      drop: int, label_text: str = ""):
+    """Nouveau module « tranche de mur » (voir warp_wall_piece). Réutilise un module identique. (module, créé?)"""
+    import hashlib
+
     from sbs.services.batch_import import find_local_by_sha
     asset = library.get(asset_uuid)
     if asset is None:
         raise ValueError("ce module est absent de la bibliothèque")
-    if isinstance(factor, bool) or not isinstance(factor, (int, float)) or not 0.1 <= factor <= 1.0:
-        raise ValueError("l'échelle doit être comprise entre 10 % et 100 %")
-    if factor == 1.0:
-        return asset, False
     try:
         src = Image.open(io.BytesIO(library.image_bytes(asset_uuid)))
         src.load()
     except (OSError, LibraryError, ValueError) as exc:
         raise ValueError(f"image du module illisible : {exc}") from exc
-    nw, nh = max(1, round(asset.width * factor)), max(1, round(asset.height * factor))
-    out = src.convert("RGBA").resize((nw, nh), Image.Resampling.NEAREST)
+    img, pivot = warp_wall_piece(src, width, s_left, s_right, drop)
     buf = io.BytesIO()
-    out.save(buf, "PNG")
+    img.save(buf, "PNG")
     png = buf.getvalue()
-
-    def scale_pt(p: int, dim: int, new_dim: int) -> int:
-        if p >= dim:
-            return new_dim
-        if p == dim - 1:
-            return new_dim - 1  # le bas / le bord reste le bas / le bord
-        return min(new_dim - 1, round(p * factor))
-    pivot = (scale_pt(asset.pivot_x, asset.width, nw), scale_pt(asset.pivot_y, asset.height, nh))
-    import hashlib
     existing = find_local_by_sha(library, hashlib.sha256(png).hexdigest())
     if existing is not None:
         found = library.get(existing)
         if found is not None and (found.pivot_x, found.pivot_y) == pivot:
             return found, False
-    name = f"{asset.name} {round(factor * 100)}%"
-    new = None
     try:
-        new = library.create_asset(name, png, pivot, asset.category)
-        if asset.anchors:
-            anchors = [Anchor(a.name, scale_pt(a.x, asset.width, nw), scale_pt(a.y, asset.height, nh))
-                       for a in asset.anchors]
-            new = library.update_geometry(new.uuid, pivot, anchors, revision=1)
+        new = library.create_asset(f"{asset.name} perspective {label_text}".strip(), png, pivot, asset.category)
         if asset.tags:
             library.set_tags(new.uuid, asset.tags)
         return library.get(new.uuid), True
     except (LibraryError, ValueError) as exc:
-        if new is not None:
-            library.delete_asset(new.uuid)
         raise ValueError(str(exc)) from exc

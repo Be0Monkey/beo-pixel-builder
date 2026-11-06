@@ -368,23 +368,23 @@ class CanvasScene(QGraphicsScene):
         self.history.execute(SwapAssets(changes, f"Redimensionner {RZ.label(mode, k)}"))
         return len(sel), len(created)
 
-    def place_perspective(self, asset_uuid: str, pieces: list[tuple[int, int, float]], group: bool = False) -> str | None:
-        """Pose des pièces de tailles décroissantes (voir domain.repeat.perspective) en une seule action
-        annulable. Les modules réduits sont créés (ou réutilisés) dans la bibliothèque. None si fait, sinon l'erreur."""
-        if self.library.get(asset_uuid) is None:
+    def place_wall(self, asset_uuid: str, pieces, group: bool = False) -> str | None:
+        """Pose un mur en perspective (voir domain.repeat.perspective_wall) en une seule action annulable.
+        Une « tranche » déformée est créée dans la bibliothèque pour chaque pièce. None si fait, sinon l'erreur."""
+        asset = self.library.get(asset_uuid)
+        if asset is None:
             return "Ce module est absent de la bibliothèque."
         if not pieces:
             return "Aucune position à placer."
-        if len(pieces) > MAX_COUNT:
-            return f"{MAX_COUNT} objets au maximum."
-        made: dict[float, str] = {}
         created: list[str] = []
+        made = []
         try:
-            for f in sorted({p[2] for p in pieces}, reverse=True):
-                asset, new = RZ.create_scaled(self.library, asset_uuid, f)
-                made[f] = asset.uuid
+            for i, p in enumerate(pieces, 1):
+                m, new = RZ.create_wall_piece(self.library, asset_uuid, p.width, p.s_left, p.s_right, p.drop,
+                                              f"{i}/{len(pieces)}")
+                made.append(m.uuid)
                 if new:
-                    created.append(asset.uuid)
+                    created.append(m.uuid)
         except ValueError as exc:
             for uuid in created:
                 self.library.delete_asset(uuid)
@@ -393,16 +393,12 @@ class CanvasScene(QGraphicsScene):
         gid, groups = None, []
         if group:
             gid = new_id()
-            groups = [Group(gid, "Perspective", self.entered_group)]
+            groups = [Group(gid, "Mur en perspective", self.entered_group)]
         owner = gid if gid else self.entered_group
-        far_is_lower = len(pieces) > 1 and pieces[-1][1] >= pieces[0][1]
-        insts = []
-        for i, (x, y, f) in enumerate(pieces):
-            # si la fin lointaine est plus BAS à l'écran, l'ordre automatique (par y) la mettrait devant : on corrige
-            insts.append(Instance(new_id(), made[f], int(x), int(y), z_manual=(-i if far_is_lower else 0),
-                                  floor_id=self.active_floor_id, layer_id=self.active_layer_id, group_id=owner))
+        insts = [Instance(new_id(), uuid, int(p.x), int(p.y), floor_id=self.active_floor_id,
+                          layer_id=self.active_layer_id, group_id=owner) for p, uuid in zip(pieces, made)]
         self.clear_preview()
-        self.history.execute(PlaceInstancesWithGroups(insts, groups, f"Perspective {len(insts)} pièces"))
+        self.history.execute(PlaceInstancesWithGroups(insts, groups, f"Mur en perspective ({len(insts)} pièces)"))
         self.select_ids([i.id for i in insts])
         return None
 

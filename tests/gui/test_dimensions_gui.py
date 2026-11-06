@@ -124,40 +124,27 @@ def test_repeter_pour_couvrir_une_largeur(win):
 def test_mur_en_perspective_pose_annule_et_ordre(win):
     sc, lib = win.canvas_scene, win.library
     a, _ = lib.list_assets()  # 16×20
-    pieces = R.perspective((0, 100), 5, (14, -7), 50, levels=4)
-    before = lib.count()
-    assert sc.place_perspective(a.uuid, pieces) is None
+    pieces = R.perspective_wall((0, 100), 5, 16, -50, 50)
+    assert sc.place_wall(a.uuid, pieces) is None
     insts = win.scene_model.all()
     assert len(insts) == 5
-    sizes = [lib.get(i.asset_uuid).width for i in insts]
-    assert sizes[0] == 16 and sizes == sorted(sizes, reverse=True) and sizes[-1] == 8
-    assert lib.count() - before == len({i.asset_uuid for i in insts}) - 1  # 1 module = l'original
+    assert [(i.x, i.y) for i in insts] == [(p.x, p.y) for p in pieces]
+    for p, i in zip(pieces, insts):
+        assert lib.get(i.asset_uuid).width == p.width
     order = [i.id for i in win.scene_model.draw_instances()]
     assert order[-1] == insts[0].id  # la plus proche (en bas) est dessinée devant
     win.canvas_scene.undo()
     assert len(win.scene_model) == 0
 
 
-def test_perspective_qui_descend_met_la_plus_proche_devant(win):
-    sc = win.canvas_scene
-    a, _ = win.library.list_assets()
-    assert sc.place_perspective(a.uuid, R.perspective((0, 0), 4, (14, 7), 50, levels=3)) is None
-    insts = win.scene_model.all()
-    order = [i.id for i in win.scene_model.draw_instances()]
-    assert order[-1] == insts[0].id  # même si le lointain est plus BAS à l'écran
-
-
-def test_dialogue_perspective(win):
+def test_dialogue_mur_perspective(win):
     sc, lib = win.canvas_scene, win.library
     a, _ = lib.list_assets()
     dlg = RepeatDialog(sc, a.uuid, None, (0, 60))
     dlg.mode.setCurrentIndex(dlg.mode.findData("persp"))
-    dlg.count.setValue(6)
-    dlg.sx.setValue(16)
-    dlg.sy.setValue(-8)
+    dlg.wall_count.setValue(6)
+    dlg.slope.setValue(-50)
     dlg.last_pct.setValue(40)
     assert "6 objet(s)" in dlg.info.text() and "100 % à 40 %" in dlg.info.text()
     assert dlg.place() is None and len(win.scene_model) == 6
-    widths = [lib.get(i.asset_uuid).width for i in win.scene_model.all()]
-    assert widths[0] == 16 and widths[-1] == 6  # 40 % de 16, arrondi
     dlg.close()

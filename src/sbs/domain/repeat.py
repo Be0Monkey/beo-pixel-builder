@@ -1,6 +1,7 @@
 """Répétition d'objets : ligne, grille, tracé (sans Qt). Renvoie des positions entières de pivots."""
 
 import math
+from dataclasses import dataclass
 
 MAX_COUNT = 2000
 Point = tuple[int, int]
@@ -49,27 +50,45 @@ def cover(origin: Point, length: int, piece: int, horizontal: bool = True, fit: 
     return [(origin[0] + o, origin[1]) if horizontal else (origin[0], origin[1] + o) for o in offsets]
 
 
-def perspective(origin: Point, count: int, step: Point, last_percent: int, levels: int = 6) -> list[tuple[int, int, float]]:
-    """Pièces qui s'éloignent en diagonale : la 1re est à taille normale (100 %), la dernière à `last_percent` %.
-    `step` = avancée entre deux pièces à taille normale ; elle rétrécit avec la taille (pièces toujours jointives).
-    Les tailles sont regroupées en `levels` paliers (2 à 12) pour ne créer que peu de modules.
-    Renvoie [(x, y, échelle)] ; l'échelle vaut exactement 1.0 pour les pièces à taille normale."""
-    count = _int("nombre", count, 1, 10**6)
-    _check_count(count)
-    last_percent = _int("échelle de la dernière pièce (%)", last_percent, 10, 100)
-    levels = _int("niveaux", levels, 2, 12)
+@dataclass(frozen=True)
+class WallPiece:
+    """Une pièce d'un mur en perspective. (x, y) = coin bas-gauche de la pièce, sur la ligne du sol.
+    `drop` = de combien le bas du bord droit est plus bas que le bas du bord gauche (négatif = monte)."""
+    x: int
+    y: int
+    width: int
+    s_left: float  # échelle verticale au bord gauche (1.0 = taille normale)
+    s_right: float
+    drop: int
+
+
+MAX_WALL_PIECES = 40
+
+
+def perspective_wall(origin: Point, count: int, piece_width: int, slope_percent: int,
+                     last_percent: int) -> list[WallPiece]:
+    """Mur continu qui s'éloigne : les bords de pièces voisines se rejoignent exactement (même hauteur et même
+    point bas au raccord), le haut et le bas du mur forment deux droites qui convergent.
+    `origin` = coin bas-gauche de la 1re pièce (la plus proche, hauteur normale) ; `piece_width` = largeur d'une
+    pièce à taille normale ; `slope_percent` = pente du sol (−50 = monte d'1 px pour 2 px vers la droite) ;
+    `last_percent` = hauteur du mur à son extrémité lointaine, en % de la hauteur normale (10 à 100).
+    Les pièces rétrécissent aussi en largeur (raccourci de perspective)."""
+    count = _int("nombre", count, 1, MAX_WALL_PIECES)
+    piece_width = _int("largeur d'une pièce", piece_width, 1, 4096)
+    slope_percent = _int("pente du sol (%)", slope_percent, -300, 300)
+    last_percent = _int("hauteur au loin (%)", last_percent, 10, 100)
     last = last_percent / 100
-    palette = [1.0 - (1.0 - last) * k / (levels - 1) for k in range(levels)]
-    raw = [1.0 if count == 1 else 1.0 + (last - 1.0) * i / (count - 1) for i in range(count)]
-    out: list[tuple[int, int, float]] = []
-    fx, fy = float(origin[0]), float(origin[1])
-    for i, r in enumerate(raw):
-        q = min(palette, key=lambda v: abs(v - r))
-        out.append((round(fx), round(fy), 1.0 if q >= 0.9999 else round(q, 4)))
-        nxt = raw[i + 1] if i + 1 < count else r
-        mid = (r + nxt) / 2  # l'avancée suit la taille moyenne des deux pièces voisines
-        fx += step[0] * mid
-        fy += step[1] * mid
+    bounds = [1.0 + (last - 1.0) * i / count for i in range(count + 1)]  # échelle à chaque raccord
+    slope = slope_percent / 100
+    xs = [float(origin[0])]
+    for i in range(count):
+        xs.append(xs[-1] + piece_width * (bounds[i] + bounds[i + 1]) / 2)
+    xr = [round(v) for v in xs]  # raccords arrondis UNE fois : le bord droit de i = le bord gauche de i+1
+    ys = [origin[1] + round(slope * (x - xr[0])) for x in xr]
+    out = []
+    for i in range(count):
+        w = max(1, xr[i + 1] - xr[i])
+        out.append(WallPiece(xr[i], ys[i], w, bounds[i], bounds[i + 1], ys[i + 1] - ys[i]))
     return out
 
 
