@@ -102,3 +102,13 @@ remplace pas un rendu Blender.
 - Une seule scène par projet.
 - L'aperçu éclairé est une approximation ; l'export Godot ne crée pas d'AnimatedSprite (les animations sont dans le JSON et les planches).
 - Très grosses scènes : voir `docs/Performances.md` pour les seuils mesurés.
+
+## 12. Assembler sur téléphone (Atelier Pixel)
+
+Tu peux assembler une scène sur ton téléphone avec l'Atelier Pixel (onglet « Assembler »), puis la récupérer sur le PC.
+
+1. **PC → téléphone** : menu Fichier, « Exporter la bibliothèque pour le téléphone ». Envoie le fichier obtenu sur le téléphone (câble, e-mail, messagerie) et, dans l'Atelier Pixel, onglet Assembler → Scène → « Importer la bibliothèque du PC ». Compte quelques secondes pour un gros kit (plusieurs centaines de modules).
+2. **Sur le téléphone** : choisis un module, touche la scène pour le poser ; outil Sélection pour déplacer, flèches pour ajuster, devant/derrière, dupliquer, supprimer. Les dessins faits dans l'Atelier Pixel s'ajoutent aux modules avec « → Mes modules » (point d'appui en bas au centre, réglable).
+3. **Téléphone → PC** : onglet Scène → « Partager avec le PC » (ou « Enregistrer le fichier »). Sur le PC : menu Fichier, « Importer une scène du téléphone ». Les modules absents sont ajoutés à la bibliothèque, les autres réutilisés ; la scène s'ouvre comme un projet non enregistré.
+
+Limites : le paquet scène ne transporte que les modules et leurs positions (pas de variantes, cartes de normales, groupes ni étages multiples) ; une seule scène est gardée sur le téléphone, dans le navigateur ; vider les données du navigateur efface modules et scène.

@@ -102,3 +102,10 @@ Comparer point par point Q17–Q51, puis mettre à jour uniquement les exigences
 - Mode « Mur en perspective » du dialogue Répéter (`domain/repeat.perspective_wall`, `resize.warp_wall_piece/create_wall_piece`, `CanvasScene.place_wall`) : N pièces (≤ 40), échelle linéaire de 100 % à X % (10–100), largeurs proportionnelles à l'échelle moyenne, raccords arrondis une seule fois (bord droit de i = bord gauche de i+1), sol en pente. Chaque pièce est un module déformé colonne par colonne (voisin le plus proche : hauteur et bas de chaque colonne), réutilisé si identique. Les raccords partagent hauteur et point bas : plus d'escalier. Format projet inchangé.
 - Ordre : si le bout lointain est plus bas à l'écran que le proche, `z_manual` décroissant est posé pour garder la plus proche devant ; sinon l'ordre automatique (par y) suffit.
 - Limites : aperçu en taille normale (positions seulement), variantes et cartes `_n`/`_e` non reprises, réduction non entière → pixels de tailles irrégulières (assumé pour un effet de recul).
+
+## Notes — Échanges avec le téléphone (Atelier Pixel)
+- `services/phone_pack.py` : deux JSON versionnés (v1), PNG en base64, aucune exécution de code. Paquet bibliothèque (PC → téléphone) : id, nom, catégorie, taille, pivot, mots-clés, image. Paquet scène (téléphone → PC) : modules utilisés + instances (module, x, y, z), x/y = pivot comme dans un .sbsproj.
+- Lecture défensive : limites (5000 modules, 20000 objets, 8 Mio/PNG, 4096 px), taille annoncée = taille réelle, module absent refusé. Import : réutilise par id puis par SHA-256, sinon crée ; en cas d'échec les modules créés sont retirés.
+- Menu Fichier : « Exporter la bibliothèque pour le téléphone », « Importer une scène du téléphone » (scène ouverte comme projet non enregistré).
+- Côté téléphone : IndexedDB (modules, images, scène en cours). Limites assumées : pas de variantes/normales/groupes/étages, une scène à la fois.
+

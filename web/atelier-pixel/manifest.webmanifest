@@ -1,0 +1,17 @@
+{
+  "name": "Atelier Pixel",
+  "short_name": "Atelier Pixel",
+  "description": "Éditeur de pixel-art pour dessiner des sprites au doigt, au stylet ou à la souris.",
+  "lang": "fr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#262a44",
+  "theme_color": "#262a44",
+  "icons": [
+    {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}

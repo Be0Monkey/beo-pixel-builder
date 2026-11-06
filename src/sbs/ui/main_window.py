@@ -32,6 +32,7 @@ from sbs.services.project_io import (
     load_project,
     save_project,
 )
+from sbs.services.phone_pack import PackError, export_library_pack, import_scene_pack, parse_scene_pack
 from sbs.services.preferences import Preferences
 from sbs.ui.floors_panel import FloorsPanel
 from sbs.ui.library_panel import LibraryPanel
@@ -135,6 +136,10 @@ class MainWindow(SessionMixin, QMainWindow):
                                     triggered=lambda: self.export_dialog(True)))
         file_menu.addAction(QAction("Exporter pour &Godot 4…", self, triggered=lambda: self.open_export("godot4")))
         file_menu.addAction(QAction("Exporter en &JSON…", self, triggered=lambda: self.open_export("json")))
+        file_menu.addSeparator()
+        file_menu.addAction(QAction("Exporter la bibliothèque pour le &téléphone…", self,
+                                    triggered=self.export_phone_library))
+        file_menu.addAction(QAction("Importer une scène du téléphone…", self, triggered=self.import_phone_scene))
         file_menu.addSeparator()
         file_menu.addAction(QAction("&Options…", self, shortcut="Ctrl+,", triggered=self.open_options))
         file_menu.addAction(QAction("&Quitter", self, shortcut="Ctrl+Q", triggered=self.close))
@@ -300,6 +305,47 @@ class MainWindow(SessionMixin, QMainWindow):
         self.meta, self.path = meta, path
         self._update_title()
         self._update_status()
+
+    # --- échanges avec le téléphone --------------------------------------------------------------
+    def export_phone_library(self) -> None:
+        file, _ = QFileDialog.getSaveFileName(
+            self, "Exporter la bibliothèque pour le téléphone", "bibliotheque.sbspack.json",
+            "Paquet bibliothèque (*.json)")
+        if not file:
+            return
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            count = export_library_pack(self.library, Path(file))
+        except OSError as exc:
+            QApplication.restoreOverrideCursor()
+            QMessageBox.critical(self, "Export impossible", str(exc))
+            return
+        QApplication.restoreOverrideCursor()
+        size = Path(file).stat().st_size / 1_000_000
+        QMessageBox.information(
+            self, "Bibliothèque exportée",
+            f"{count} module(s) exportés ({size:.1f} Mo).\n\nEnvoie ce fichier sur ton téléphone, puis dans "
+            "l'Atelier Pixel (onglet Assembler) touche « Importer la bibliothèque ».")
+
+    def import_phone_scene(self) -> bool:
+        if not self._confirm_discard():
+            return False
+        file, _ = QFileDialog.getOpenFileName(
+            self, "Importer une scène du téléphone", "", "Paquet scène (*.json)")
+        if not file:
+            return False
+        try:
+            pack = parse_scene_pack(Path(file).read_text(encoding="utf-8"))
+            result = import_scene_pack(self.library, pack)
+        except (PackError, OSError, UnicodeDecodeError) as exc:
+            QMessageBox.critical(self, "Import impossible", str(exc))
+            return False
+        self._apply(result.meta, result.instances, None, result.floors)
+        QMessageBox.information(
+            self, "Scène importée",
+            f"{len(result.instances)} objet(s) placés.\n{result.reused} module(s) déjà présents, "
+            f"{result.created} nouveau(x) ajouté(s) à la bibliothèque.\n\nPense à enregistrer le projet.")
+        return True
 
     def open_dialog(self) -> None:
         if not self._confirm_discard():
