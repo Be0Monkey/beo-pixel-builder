@@ -12,7 +12,7 @@
 <style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font-size:14px}[hidden]{display:none!important}</style>
 </head>
 <body>
-<title>Atelier Pixel</title>
+<title>Sprite Builder Studio</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;600;700&family=Pixelify+Sans:wght@500;700&display=swap">
 <style>
@@ -211,6 +211,7 @@ body:not([data-mode="asm"]) #asm { display: none; }
 .prog { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; margin: 8px 0; }
 .prog i { display: block; height: 100%; width: 0; background: var(--accent); }
 @media (max-width: 760px) {
+  .brand { font-size: 14px !important; white-space: normal !important; line-height: 1.05 !important; max-width: 92px; }
   #asm { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) minmax(170px, 40%); grid-template-areas: "atop" "acenter" "aside"; gap: 6px; }
   .modes button { padding: 6px 9px; }
 }
@@ -220,7 +221,7 @@ body:not([data-mode="asm"]) #asm { display: none; }
 
 <div id="app">
   <header class="top">
-    <h1 class="brand">Atelier Pixel</h1>
+    <h1 class="brand">Sprite Builder Studio</h1>
     <div class="modes"><button data-mode="draw" aria-pressed="true">Dessiner</button><button data-mode="asm" aria-pressed="false">Assembler</button></div>
     <input id="name" type="text" value="sans-titre" maxlength="40" aria-label="Nom du sprite" autocomplete="off">
     <div class="actions">
@@ -303,7 +304,7 @@ body:not([data-mode="asm"]) #asm { display: none; }
 
 <div id="asm">
   <header class="top">
-    <h1 class="brand">Atelier Pixel</h1>
+    <h1 class="brand">Sprite Builder Studio</h1>
     <div class="modes"><button data-mode="draw" aria-pressed="false">Dessiner</button><button data-mode="asm" aria-pressed="true">Assembler</button></div>
     <div class="actions">
       <button class="btn" id="aUndo">↶ Annuler</button>
@@ -890,7 +891,7 @@ async function openProjectText(txt, fname) {
     if (!res || res.layers.some(l => l.pix.length !== d.w * d.h)) throw new Error('taille');
     currentId = null; dirtySave = true; $('#name').value = String(d.name || fname.replace(/\.[^.]+$/, '')).slice(0, 40) || 'sans-titre';
     setSprite(res.w, res.h, res.layers); toast('Projet ouvert');
-  } catch (er) { toast("Ce fichier n'est pas un projet Atelier Pixel valide."); }
+  } catch (er) { toast("Ce fichier n'est pas un projet Sprite Builder Studio valide."); }
 }
 function loadImage(src) {
   return new Promise((ok, ko) => {
@@ -1334,6 +1335,43 @@ function renderObj() {
   add('Dupliquer', () => { const b = snap(), c = { ...o, id: rid(), x: o.x + (A.snap > 1 ? A.snap : 8), y: o.y }; A.inst.push(c); A.sel = c.id; pushUndo(b); });
   add('Supprimer', delSel, 'del');
   box.appendChild(st);
+  /* Répéter (ligne / grille) comme « Répéter » du PC : copies espacées, chacune reste modifiable */
+  const m0 = m || { w: 16, h: 16 };
+  const rp = document.createElement('section'); rp.style.marginTop = '14px';
+  rp.innerHTML = '<h3>Répéter</h3><div class="row"><label>Colonnes <input type="number" id="rpC" min="1" max="40" value="3" style="width:56px"></label><label>Lignes <input type="number" id="rpL" min="1" max="40" value="1" style="width:56px"></label></div><div class="row"><label>Pas x <input type="number" id="rpX" style="width:64px"></label><label>Pas y <input type="number" id="rpY" value="0" style="width:64px"></label></div><p class="note">Le pas est la distance entre deux copies (par défaut la largeur du module).</p>';
+  $('#rpX', rp).value = m0.w;
+  const rb = document.createElement('button'); rb.className = 'btn'; rb.textContent = 'Créer les copies';
+  rb.onclick = () => {
+    const c = Math.max(1, Math.min(40, +$('#rpC', rp).value | 0)), l = Math.max(1, Math.min(40, +$('#rpL', rp).value | 0)), dx = +$('#rpX', rp).value | 0, dy = +$('#rpY', rp).value | 0;
+    if (c * l <= 1) return toast('Choisis au moins 2 copies.');
+    if (A.inst.length + c * l > 3000) return toast('Trop d\'objets (3000 maximum).');
+    const b = snap(); let last = null;
+    for (let j = 0; j < l; j++) for (let i = 0; i < c; i++) { if (!i && !j) continue; last = { id: rid(), module: o.module, x: o.x + i * dx, y: o.y + j * dy, z: o.z }; A.inst.push(last); }
+    pushUndo(b); toast((c * l - 1) + ' copie(s) créée(s)');
+  };
+  rp.appendChild(rb); box.appendChild(rp);
+  /* Redimensionner (entier seulement, pixels nets) : crée un NOUVEAU module, l'original n'est pas touché */
+  if (m) {
+    const rs = document.createElement('section'); rs.style.marginTop = '14px';
+    rs.innerHTML = '<h3>Redimensionner</h3><p class="note">Facteurs entiers : pixels nets, l\'original reste intact. Le module créé remplace celui de cet objet.</p>';
+    const row = document.createElement('div'); row.className = 'row';
+    for (const [lab, k] of [['×2', 2], ['×3', 3], ['×4', 4], ['÷2', -2], ['÷3', -3]]) {
+      const bt = document.createElement('button'); bt.className = 'btn small'; bt.textContent = lab; bt.onclick = () => resizeSel(k); row.appendChild(bt);
+    }
+    rs.appendChild(row); box.appendChild(rs);
+  }
+}
+async function resizeSel(k) {
+  const o = selObj(), m = o && modById.get(o.module), blob = m && await DB.image(m.id); if (!m || !blob) return;
+  const f = k > 0 ? k : 1 / -k, nw = Math.round(m.w * f), nh = Math.round(m.h * f);
+  if (k < 0 && (m.w % -k || m.h % -k)) return toast('Réduction impossible : la taille n\'est pas divisible.');
+  if (nw > 1024 || nh > 1024) return toast('Résultat trop grand (1024 pixels maximum).');
+  const bm = await createImageBitmap(blob), c = document.createElement('canvas'); c.width = nw; c.height = nh;
+  const x = c.getContext('2d'); x.imageSmoothingEnabled = false; x.drawImage(bm, 0, 0, nw, nh);
+  const nb = await new Promise(r => c.toBlob(r, 'image/png'));
+  const id = 'r_' + rid(), meta = { id, name: m.name + (k > 0 ? ' ×' + k : ' ÷' + -k), category: m.category, w: nw, h: nh, px: Math.round(m.px * f), py: Math.round(m.py * f), tags: [] };
+  await addModule(meta, nb);
+  const b = snap(); o.module = id; pushUndo(b); toast('Module « ' + meta.name + ' » créé');
 }
 
 /* ---------- Liste des modules ---------- */

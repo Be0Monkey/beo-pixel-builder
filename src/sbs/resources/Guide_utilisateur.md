@@ -103,9 +103,9 @@ remplace pas un rendu Blender.
 - L'aperçu éclairé est une approximation ; l'export Godot ne crée pas d'AnimatedSprite (les animations sont dans le JSON et les planches).
 - Très grosses scènes : voir `docs/Performances.md` pour les seuils mesurés.
 
-## 12. Assembler sur téléphone (Atelier Pixel)
+## 12. L'édition web et le téléphone
 
-Tu peux assembler une scène sur ton téléphone avec l'Atelier Pixel (onglet « Assembler »), puis la récupérer sur le PC.
+Tu peux assembler une scène sur ton téléphone avec l'édition web de Sprite Builder Studio (onglet « Assembler »), puis la récupérer sur le PC.
 
 1. **PC → téléphone** : menu Fichier, « Exporter la bibliothèque pour le téléphone ». Envoie le fichier obtenu sur le téléphone (câble, e-mail, messagerie) et, dans l'Atelier Pixel, onglet Assembler → Scène → « Importer la bibliothèque du PC ». Compte quelques secondes pour un gros kit (plusieurs centaines de modules).
 2. **Sur le téléphone** : choisis un module, touche la scène pour le poser ; outil Sélection pour déplacer, flèches pour ajuster, devant/derrière, dupliquer, supprimer. Les dessins faits dans l'Atelier Pixel s'ajoutent aux modules avec « → Mes modules » (point d'appui en bas au centre, réglable).

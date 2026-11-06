@@ -1,7 +1,7 @@
 {
-  "name": "Atelier Pixel",
-  "short_name": "Atelier Pixel",
-  "description": "Éditeur de pixel-art pour dessiner des sprites au doigt, au stylet ou à la souris.",
+  "name": "Sprite Builder Studio",
+  "short_name": "SB Studio",
+  "description": "Dessiner et assembler des sprites 2D, sur téléphone, tablette et PC.",
   "lang": "fr",
   "start_url": "./",
   "scope": "./",

@@ -235,7 +235,7 @@ class MainWindow(SessionMixin, QMainWindow):
         help_menu.addAction(QAction("&Guide utilisateur", self, shortcut="F1", triggered=self.open_guide))
         help_menu.addAction(QAction("&Raccourcis clavier…", self,
                                     triggered=lambda: self.open_options(start_tab=1)))
-        help_menu.addAction(QAction("Ouvrir l'&Atelier Pixel (navigateur, téléphone)", self,
+        help_menu.addAction(QAction("Ouvrir l'&édition web (navigateur, téléphone)", self,
                                     triggered=self.open_atelier_pixel))
         help_menu.addAction(QAction("À propos", self, triggered=self._about))
 
