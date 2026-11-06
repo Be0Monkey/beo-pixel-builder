@@ -317,6 +317,7 @@ body:not([data-mode="asm"]) #asm { display: none; }
       <button class="btn small" data-atool="place" aria-pressed="true">Poser</button>
       <button class="btn small" data-atool="select" aria-pressed="false">Sélection</button>
       <button class="btn small" data-atool="hand" aria-pressed="false">Main</button>
+      <button class="btn small" id="aMulti" aria-pressed="false" title="Sélection multiple">Multi</button>
       <span class="sep"></span>
       <span class="lbl">Aimant</span>
       <select id="aSnap" aria-label="Aimant"><option value="1">Aucun</option><option value="4">4</option><option value="8">8</option><option value="16" selected>16</option><option value="32">32</option><option value="64">64</option></select>
@@ -336,6 +337,8 @@ body:not([data-mode="asm"]) #asm { display: none; }
     <div class="tabs" role="tablist">
       <button class="tab" role="tab" data-atab="mods" aria-selected="true">Modules</button>
       <button class="tab" role="tab" data-atab="obj" aria-selected="false">Objet</button>
+      <button class="tab" role="tab" data-atab="lay" aria-selected="false">Calques</button>
+      <button class="tab" role="tab" data-atab="anim" aria-selected="false">Anim.</button>
       <button class="tab" role="tab" data-atab="scene" aria-selected="false">Scène</button>
     </div>
     <div class="panel" id="ap-mods">
@@ -351,7 +354,10 @@ body:not([data-mode="asm"]) #asm { display: none; }
       </div>
     </div>
     <div class="panel" id="ap-obj" hidden></div>
+    <div class="panel" id="ap-lay" hidden></div>
+    <div class="panel" id="ap-anim" hidden></div>
     <div class="panel" id="ap-scene" hidden>
+      <section><h3>Mes scènes</h3><div id="aScenes"></div></section>
       <section><h3>Scène</h3>
         <div class="row"><label for="aName">Nom</label><input id="aName" type="text" maxlength="60" style="flex:1;min-width:0;padding:7px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg)"></div>
         <p class="note" id="aCount"></p>
@@ -359,6 +365,14 @@ body:not([data-mode="asm"]) #asm { display: none; }
           <button class="btn primary" id="aShare">Partager avec le PC (WhatsApp, e-mail…)</button>
           <button class="btn" id="aSave">Enregistrer le fichier pour le PC</button>
           <button class="btn" id="aNew">Nouvelle scène</button>
+        </div>
+      </section>
+      <section><h3>Exporter</h3>
+        <div class="stack">
+          <div class="row" style="margin:0"><button class="btn" id="aExpPng" style="flex:1">Image PNG de la scène</button><select id="aPngScale" aria-label="Taille de l'image" class="btn" style="width:76px"><option value="1">×1</option><option value="2">×2</option><option value="4">×4</option></select></div>
+          <button class="btn" id="aExpGodot">Scène Godot 4 (.zip)</button>
+          <label class="note" style="margin:0"><input type="checkbox" id="aGodotProj"> inclure un petit projet Godot de test</label>
+          <button class="btn" id="aExpJson">JSON structuré (.zip)</button>
         </div>
       </section>
       <section><h3>Modules</h3>
@@ -1100,7 +1114,9 @@ const DB = {
 /* ---------- Modèle ---------- */
 let MODS = [];                      // métadonnées de tous les modules
 const modById = new Map();
-const A = { name: 'Ma scène', inst: [], sel: null, tool: 'place', mod: null, snap: 16, grid: true, view: { z: 2, ox: 0, oy: 0 }, ghost: null };
+const mkFloors = () => [{ id: rid(), name: 'RDC', visible: true, locked: false, layers: [{ id: rid(), name: 'Calque 1', visible: true, locked: false }] }];
+const A = { trace: [], id: rid(), anims: [], name: 'Ma scène', inst: [], floors: mkFloors(), groups: {}, sels: [], ctx: null, multi: false, af: null, al: null, sel: null, tool: 'place', mod: null, snap: 16, grid: true, view: { z: 2, ox: 0, oy: 0 }, ghost: null };
+A.af = A.floors[0].id; A.al = A.floors[0].layers[0].id;
 const undoS = [], redoS = [];
 let storageOk = true;
 const cv = $('#acv'), ctx = cv.getContext('2d'), stage = $('#astage');
@@ -1130,12 +1146,49 @@ const forget = id => { bmpReady.delete(id); masks.delete(id); };
 /* ---------- Géométrie ---------- */
 const snapV = v => A.snap > 1 ? Math.round(v / A.snap) * A.snap : Math.round(v);
 function toWorld(e) { const r = cv.getBoundingClientRect(), z = A.view.z; return { x: (e.clientX - r.left - A.view.ox) / z, y: (e.clientY - r.top - A.view.oy) / z, sx: e.clientX - r.left, sy: e.clientY - r.top }; }
-function order() { return A.inst.map((o, i) => i).sort((a, b) => (A.inst[a].z - A.inst[b].z) || (A.inst[a].y - A.inst[b].y) || (a - b)); }
+const flOf = o => A.floors.find(f => f.id === o.f), lyOf = o => { const f = flOf(o); return f && f.layers.find(l => l.id === o.l); };
+const shown = o => { const f = flOf(o), l = lyOf(o); return !!(f && l && f.visible && l.visible); };
+const locked = o => { const f = flOf(o), l = lyOf(o); return !f || !l || f.locked || l.locked; };
+/* ordre de dessin : étage, calque, z manuel, y du pivot, ordre d'insertion */
+function order() {
+  const fi = new Map(), li = new Map();
+  A.floors.forEach((f, i) => { fi.set(f.id, i); f.layers.forEach((l, j) => li.set(l.id, j)); });
+  return A.inst.map((o, i) => i).sort((a, b) => { const p = A.inst[a], q = A.inst[b];
+    return ((fi.get(p.f) ?? 0) - (fi.get(q.f) ?? 0)) || ((li.get(p.l) ?? 0) - (li.get(q.l) ?? 0)) || (p.z - q.z) || (p.y - q.y) || (a - b); });
+}
+const curFL = () => { let f = A.floors.find(x => x.id === A.af) || A.floors[0]; let l = f.layers.find(x => x.id === A.al) || f.layers[0]; A.af = f.id; A.al = l.id; return { f: f.id, l: l.id }; };
+const normInst = o => { if (!flOf(o) || !lyOf(o)) { const d = { f: A.floors[0].id, l: A.floors[0].layers[0].id }; o.f = d.f; o.l = d.l; } if (o.g && !A.groups[o.g]) o.g = null; return o; };
+/* groupes : unité de sélection selon le groupe dans lequel on est entré */
+const chainOf = gid => { const out = []; while (gid && A.groups[gid]) { out.push(gid); gid = A.groups[gid].parent; } return out; };
+function unitOf(o) {
+  const c = chainOf(o.g);
+  if (A.ctx === null) return c.length ? { k: 'g', id: c[c.length - 1] } : { k: 'i', id: o.id };
+  if (!c.includes(A.ctx)) return null;
+  const idx = c.indexOf(A.ctx); return idx > 0 ? { k: 'g', id: c[idx - 1] } : { k: 'i', id: o.id };
+}
+function leavesOf(u) {
+  if (u.k === 'i') return [u.id];
+  const under = new Set([u.id]); let ch = true;
+  while (ch) { ch = false; for (const g of Object.values(A.groups)) if (g.parent && under.has(g.parent) && !under.has(g.id)) { under.add(g.id); ch = true; } }
+  return A.inst.filter(o => o.g && under.has(o.g)).map(o => o.id);
+}
+const setSels = ids => { A.sels = [...new Set(ids)].filter(id => A.inst.some(o => o.id === id)); A.sel = A.sels.length ? A.sels[A.sels.length - 1] : null; };
+function pruneGroups() {
+  for (;;) {
+    const used = new Set(A.inst.map(o => o.g).filter(Boolean));
+    Object.values(A.groups).forEach(g => { if (g.parent) used.add(g.parent); });
+    const empty = Object.keys(A.groups).filter(id => !used.has(id));
+    if (!empty.length) break; empty.forEach(id => delete A.groups[id]);
+  }
+  if (A.ctx && !A.groups[A.ctx]) A.ctx = null;
+}
+const groupDepthOk = () => Object.values(A.groups).every(g => chainOf(g.id).length <= 3);
 function rectOf(o) { const m = modById.get(o.module); return m ? { x: o.x - m.px, y: o.y - m.py, w: m.w, h: m.h } : { x: o.x - 8, y: o.y - 16, w: 16, h: 16 }; }
 function hit(w) {
   const ord = order();
   for (let k = ord.length - 1; k >= 0; k--) {
     const o = A.inst[ord[k]], r = rectOf(o);
+    if (!shown(o) || locked(o) || unitOf(o) === null) continue;
     if (w.x < r.x || w.y < r.y || w.x >= r.x + r.w || w.y >= r.y + r.h) continue;
     const mk = maskOf(o.module);
     if (!mk) { if (!bmpReady.has(o.module) || !bmpReady.get(o.module)) return o; continue; }
@@ -1174,16 +1227,22 @@ function draw() {
     else { ctx.fillStyle = bm === null ? '#e05a9a' : css('--line'); ctx.fillRect(ox + Math.round(r.x * z), oy + Math.round(r.y * z), r.w * z, r.h * z); if (bm === null) { ctx.fillStyle = '#fff'; ctx.font = 'bold 14px sans-serif'; ctx.fillText('?', ox + Math.round(r.x * z) + 4, oy + Math.round(r.y * z) + 16); } }
     ctx.globalAlpha = 1;
   };
-  for (const i of order()) drawInst(A.inst[i], 1);
+  for (const i of order()) if (shown(A.inst[i])) drawInst(A.inst[i], 1);
   if (A.tool === 'place' && A.mod && A.ghost && modById.has(A.mod)) drawInst({ module: A.mod, x: A.ghost.x, y: A.ghost.y }, .6);
-  const s = A.sel && A.inst.find(o => o.id === A.sel);
-  if (s) {
+  if (A.trace.length) {
+    ctx.strokeStyle = css('--accent'); ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.beginPath();
+    A.trace.forEach((q, i) => { const X = ox + q.x * z, Y = oy + q.y * z; i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); }); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = css('--accent'); A.trace.forEach(q => ctx.fillRect(ox + q.x * z - 3, oy + q.y * z - 3, 7, 7));
+  }
+  for (const sid of A.sels) {
+    const s = A.inst.find(o => o.id === sid); if (!s) continue;
     const r = rectOf(s), rx = ox + Math.round(r.x * z), ry = oy + Math.round(r.y * z);
     ctx.lineWidth = 1; ctx.setLineDash([]); ctx.strokeStyle = css('--sel-b'); ctx.strokeRect(rx + .5, ry + .5, r.w * z - 1, r.h * z - 1);
     ctx.setLineDash([4, 3]); ctx.strokeStyle = css('--sel-a'); ctx.strokeRect(rx + .5, ry + .5, r.w * z - 1, r.h * z - 1); ctx.setLineDash([]);
-    const px = ox + Math.round(s.x * z), py = oy + Math.round(s.y * z);
-    ctx.fillStyle = css('--accent'); ctx.fillRect(px - 5, py - 1, 11, 3); ctx.fillRect(px - 1, py - 5, 3, 11);
+    if (s.id === A.sel) { const px = ox + Math.round(s.x * z), py = oy + Math.round(s.y * z);
+      ctx.fillStyle = css('--accent'); ctx.fillRect(px - 5, py - 1, 11, 3); ctx.fillRect(px - 1, py - 5, 3, 11); }
   }
+  if (A.ctx) { ctx.fillStyle = css('--accent'); ctx.font = 'bold 12px sans-serif'; ctx.fillText('Dans le groupe « ' + (A.groups[A.ctx] ? A.groups[A.ctx].name : '') + ' »', 10, 18); }
 }
 new ResizeObserver(() => { if (document.body.dataset.mode === 'asm') { if (needFit) fit(); else redraw(); } }).observe(stage);
 try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', redraw); new MutationObserver(redraw).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] }); } catch (e) {}
@@ -1207,16 +1266,16 @@ const nearestZ = v => ZOOMS.reduce((a, b) => Math.abs(b - v) < Math.abs(a - v) ?
 const stepZ = dir => { const i = ZOOMS.indexOf(nearestZ(A.view.z)); return ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, i + dir))]; };
 
 /* ---------- Historique ---------- */
-const snap = () => JSON.stringify(A.inst);
+const snap = () => JSON.stringify({ i: A.inst, f: A.floors, g: A.groups, af: A.af, al: A.al });
+function restoreSnap(t) { const d = JSON.parse(t); A.inst = d.i; A.floors = d.f; A.groups = d.g; A.af = d.af; A.al = d.al; A.inst.forEach(normInst); curFL(); pruneGroups(); setSels(A.sels); }
 function pushUndo(before) { undoS.push(before); if (undoS.length > 100) undoS.shift(); redoS.length = 0; changed(); }
 function changed() { updateUI(); saveSoon(); redraw(); }
-function undo() { if (!undoS.length) return; redoS.push(snap()); A.inst = JSON.parse(undoS.pop()); fixSel(); changed(); }
-function redo() { if (!redoS.length) return; undoS.push(snap()); A.inst = JSON.parse(redoS.pop()); fixSel(); changed(); }
-const fixSel = () => { if (A.sel && !A.inst.some(o => o.id === A.sel)) A.sel = null; };
+function undo() { if (!undoS.length) return; redoS.push(snap()); restoreSnap(undoS.pop()); changed(); }
+function redo() { if (!redoS.length) return; undoS.push(snap()); restoreSnap(redoS.pop()); changed(); }
 
 /* ---------- Pointeurs ---------- */
 const ptrs = new Map();
-let stroke = null, pan = null, gest = null, blocked = false;
+let stroke = null, pan = null, gest = null, blocked = false, lastTap = { t: 0, id: null };
 cv.addEventListener('contextmenu', e => e.preventDefault());
 const snapPos = w => ({ x: snapV(w.x), y: snapV(w.y) });
 cv.addEventListener('pointerdown', e => {
@@ -1226,10 +1285,19 @@ cv.addEventListener('pointerdown', e => {
   if (blocked) return;
   const toolNow = (e.button === 1 || e.button === 2) ? 'hand' : A.tool;
   if (toolNow === 'hand') { pan = { sx: e.clientX, sy: e.clientY, ox: A.view.ox, oy: A.view.oy }; return; }
+  if (toolNow === 'trace') { A.trace.push(snapPos(w)); redraw(); if (!$('#ap-obj').hidden) renderObj(); return; }
   if (toolNow === 'place' && A.mod) { A.ghost = snapPos(w); stroke = { type: 'place' }; redraw(); return; }
   const h = hit(w);
-  if (h) { A.sel = h.id; stroke = { type: 'move', start: w, orig: { x: h.x, y: h.y }, before: snap(), moved: false, id: h.id }; updateUI(); }
-  else { A.sel = null; pan = { sx: e.clientX, sy: e.clientY, ox: A.view.ox, oy: A.view.oy }; updateUI(); }
+  if (h) {
+    const u = unitOf(h), ids = leavesOf(u), now = Date.now();
+    if (u.k === 'g' && lastTap.id === h.id && now - lastTap.t < 380) { A.ctx = u.id; const u2 = unitOf(h); setSels(leavesOf(u2)); lastTap = { t: 0, id: null }; toast('Dans le groupe : touche « Sortir du groupe » pour revenir'); updateUI(); redraw(); return; }
+    lastTap = { t: now, id: h.id };
+    if (A.multi) { const has = ids.every(i => A.sels.includes(i)); setSels(has ? A.sels.filter(i => !ids.includes(i)) : [...A.sels, ...ids]); }
+    else if (!A.sels.includes(h.id)) setSels(ids);
+    A.sel = A.sels.includes(h.id) ? h.id : A.sel;
+    stroke = A.multi ? { type: 'tap' } : { type: 'move', start: w, ref: { x: h.x, y: h.y }, origs: A.sels.map(id => { const o = A.inst.find(i => i.id === id); return { id, x: o.x, y: o.y }; }), before: snap(), moved: false };
+    updateUI();
+  } else { if (!A.multi) setSels([]); pan = { sx: e.clientX, sy: e.clientY, ox: A.view.ox, oy: A.view.oy }; updateUI(); }
   redraw();
 });
 cv.addEventListener('pointermove', e => {
@@ -1243,9 +1311,9 @@ cv.addEventListener('pointermove', e => {
   if (pan) { A.view.ox = pan.ox + e.clientX - pan.sx; A.view.oy = pan.oy + e.clientY - pan.sy; redraw(); return; }
   if (stroke && stroke.type === 'place') { A.ghost = snapPos(w); redraw(); return; }
   if (stroke && stroke.type === 'move') {
-    const o = A.inst.find(i => i.id === stroke.id); if (!o) return;
-    const nx = snapV(stroke.orig.x + (w.x - stroke.start.x)), ny = snapV(stroke.orig.y + (w.y - stroke.start.y));
-    if (nx !== o.x || ny !== o.y) { o.x = nx; o.y = ny; stroke.moved = true; redraw(); }
+    const dx = snapV(stroke.ref.x + (w.x - stroke.start.x)) - stroke.ref.x, dy = snapV(stroke.ref.y + (w.y - stroke.start.y)) - stroke.ref.y;
+    for (const q of stroke.origs) { const o = A.inst.find(i => i.id === q.id); if (o && (o.x !== q.x + dx || o.y !== q.y + dy)) { o.x = q.x + dx; o.y = q.y + dy; stroke.moved = true; } }
+    if (stroke.moved) redraw();
     return;
   }
   if (e.pointerType === 'mouse' && A.tool === 'place' && A.mod) { A.ghost = snapPos(w); redraw(); }
@@ -1257,15 +1325,15 @@ function up(e) {
   pan = null;
   const s = stroke; stroke = null; blocked = false;
   if (s && s.type === 'place' && A.ghost && A.mod) {
-    const before = snap(); const o = { id: rid(), module: A.mod, x: A.ghost.x, y: A.ghost.y, z: 0 };
-    A.inst.push(o); A.sel = o.id; pushUndo(before);
+    const before = snap(); const o = { id: rid(), module: A.mod, x: A.ghost.x, y: A.ghost.y, z: 0, ...curFL(), g: null };
+    A.inst.push(o); setSels([o.id]); pushUndo(before);
     if (e.pointerType === 'touch') A.ghost = null;
   } else if (s && s.type === 'move' && s.moved) pushUndo(s.before);
   else updateUI();
   redraw();
 }
 cv.addEventListener('pointerup', up);
-cv.addEventListener('pointercancel', e => { if (stroke && stroke.type === 'move') { const o = A.inst.find(i => i.id === stroke.id); if (o) { o.x = stroke.orig.x; o.y = stroke.orig.y; } } stroke = null; up(e); });
+cv.addEventListener('pointercancel', e => { if (stroke && stroke.type === 'move') for (const q of stroke.origs) { const o = A.inst.find(i => i.id === q.id); if (o) { o.x = q.x; o.y = q.y; } } stroke = null; up(e); });
 cv.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse' && !stroke) { A.ghost = null; redraw(); } });
 cv.addEventListener('wheel', e => { e.preventDefault(); const r = cv.getBoundingClientRect(); zoomTo(stepZ(e.deltaY < 0 ? 1 : -1), e.clientX - r.left, e.clientY - r.top); }, { passive: false });
 
@@ -1277,9 +1345,10 @@ function setTool(t) {
 }
 function updateHint() {
   const h = $('#ahint');
-  h.textContent = A.tool === 'place' ? (A.mod ? 'Touche la scène pour poser le module choisi' : 'Choisis un module dans la liste') : A.tool === 'select' ? 'Touche un objet pour le sélectionner, glisse pour le déplacer' : 'Glisse pour déplacer la vue';
+  h.textContent = A.tool === 'place' ? (A.mod ? 'Touche la scène pour poser le module choisi' : 'Choisis un module dans la liste') : A.tool === 'trace' ? 'Touche la scène pour ajouter des points au tracé' : A.tool === 'select' ? (A.multi ? 'Touche des objets pour les ajouter ou les retirer de la sélection' : 'Touche un objet pour le sélectionner, glisse pour le déplacer, touche deux fois un groupe pour y entrer') : 'Glisse pour déplacer la vue';
 }
 $$('[data-atool]').forEach(b => b.onclick = () => setTool(b.dataset.atool));
+$('#aMulti').onclick = e => { A.multi = !A.multi; e.currentTarget.setAttribute('aria-pressed', String(A.multi)); if (A.multi) setTool('select'); toast(A.multi ? 'Multi : touche les objets pour les ajouter ou les retirer' : 'Multi désactivé'); };
 $('#aSnap').onchange = e => { A.snap = +e.target.value; redraw(); try { localStorage.setItem('atelier-pixel:snap', String(A.snap)); } catch (er) {} };
 $('#aGrid').onclick = e => { A.grid = !A.grid; e.currentTarget.setAttribute('aria-pressed', String(A.grid)); redraw(); };
 $('#aZin').onclick = () => zoomTo(stepZ(1), stage.clientWidth / 2, stage.clientHeight / 2);
@@ -1289,14 +1358,15 @@ $('#aUndo').onclick = undo; $('#aRedo').onclick = redo;
 $$('[data-atab]').forEach(t => t.onclick = () => showTab(t.dataset.atab));
 function showTab(n) {
   $$('[data-atab]').forEach(x => x.setAttribute('aria-selected', String(x.dataset.atab === n)));
-  ['mods', 'obj', 'scene'].forEach(k => { $('#ap-' + k).hidden = k !== n; });
-  if (n === 'obj') renderObj();
+  ['mods', 'obj', 'lay', 'anim', 'scene'].forEach(k => { $('#ap-' + k).hidden = k !== n; });
+  if (n === 'obj') renderObj(); if (n === 'lay') renderLay(); if (n === 'anim') renderAnim(); else stopAnim(); if (n === 'scene') renderSceneList();
 }
 function updateUI() {
   $('#aUndo').disabled = !undoS.length; $('#aRedo').disabled = !redoS.length;
   $('#aCount').textContent = `${A.inst.length} objet(s) posé(s), ${new Set(A.inst.map(o => o.module)).size} module(s) différents.`;
   $('#aLibNote').textContent = `${MODS.length} module(s) disponibles.`;
   if (!$('#ap-obj').hidden) renderObj();
+  if (!$('#ap-lay').hidden) renderLay();
 }
 window.addEventListener('keydown', e => {
   if (document.body.dataset.mode !== 'asm' || e.target.matches('input,select,textarea')) return;
@@ -1312,14 +1382,41 @@ window.addEventListener('keydown', e => {
 /* ---------- Panneau « Objet » ---------- */
 let nudgeStep = 1;
 function selObj() { return A.sel ? A.inst.find(o => o.id === A.sel) : null; }
-function nudge(dx, dy) { const o = selObj(); if (!o) return; const b = snap(); o.x += dx * nudgeStep; o.y += dy * nudgeStep; pushUndo(b); }
-function delSel() { const o = selObj(); if (!o) return; const b = snap(); A.inst = A.inst.filter(i => i.id !== o.id); A.sel = null; pushUndo(b); }
+const selObjs = () => A.sels.map(id => A.inst.find(o => o.id === id)).filter(Boolean);
+function doStruct(fn) { const b = snap(); fn(); pruneGroups(); pushUndo(b); }
+function nudge(dx, dy) { const os = selObjs(); if (!os.length) return; doStruct(() => os.forEach(o => { o.x += dx * nudgeStep; o.y += dy * nudgeStep; })); }
+function delSel() { const ids = new Set(A.sels); if (!ids.size) return; doStruct(() => { A.inst = A.inst.filter(i => !ids.has(i.id)); setSels([]); }); }
+/* unités de la sélection (un groupe entier compte pour une unité) */
+function selUnits() { const seen = new Map(); for (const o of selObjs()) { const u = unitOf(o); if (u) seen.set(u.k + u.id, u); } return [...seen.values()]; }
+function groupSel() {
+  const us = selUnits(); if (us.length < 2) return toast('Sélectionne au moins 2 objets (outil Sélection + bouton Multi).');
+  const b = snap(), gid = rid(); A.groups[gid] = { id: gid, name: 'Groupe ' + (Object.keys(A.groups).length + 1), parent: A.ctx };
+  for (const u of us) { if (u.k === 'i') A.inst.find(o => o.id === u.id).g = gid; else A.groups[u.id].parent = gid; }
+  if (!groupDepthOk()) { restoreSnap(b); return toast('Groupes imbriqués : 3 niveaux au maximum.'); }
+  pushUndo(b); toast('Groupe créé');
+}
+function ungroupSel() {
+  const gs = selUnits().filter(u => u.k === 'g'); if (!gs.length) return toast('Aucun groupe sélectionné.');
+  doStruct(() => { for (const u of gs) { const g = A.groups[u.id]; if (!g) continue; for (const o of A.inst) if (o.g === g.id) o.g = g.parent || null; for (const h of Object.values(A.groups)) if (h.parent === g.id) h.parent = g.parent || null; delete A.groups[g.id]; } });
+  toast('Groupe défait');
+}
+function duplicateSel() {
+  const os = selObjs(); if (!os.length) return;
+  doStruct(() => {
+    const gmap = {}, d = A.snap > 1 ? A.snap : 8, ids = [];
+    const cg = gid => { if (!gid) return null; if (!gmap[gid]) { const g = A.groups[gid], n = rid(); gmap[gid] = n; A.groups[n] = { id: n, name: g.name, parent: g.parent === A.ctx ? g.parent : cg(g.parent) }; } return gmap[gid]; };
+    for (const o of os) { const c = { ...o, id: rid(), x: o.x + d, g: cg(o.g) }; if (!o.g) c.g = null; A.inst.push(c); ids.push(c.id); }
+    setSels(ids);
+  });
+}
 function renderObj() {
-  const box = $('#ap-obj'), o = selObj(); box.innerHTML = '';
-  if (!o) { box.innerHTML = '<div class="empty">Aucun objet sélectionné. Avec l\'outil « Sélection », touche un objet de la scène.</div>'; return; }
-  const m = modById.get(o.module);
-  box.insertAdjacentHTML('beforeend', `<dl class="kv"><dt>Module</dt><dd></dd><dt>Position</dt><dd>x ${o.x}, y ${o.y}</dd><dt>Ordre manuel</dt><dd>${o.z}</dd></dl>`);
-  $('dd', box).textContent = m ? m.name : '(module absent)';
+  const box = $('#ap-obj'), os = selObjs(), o = selObj(); box.innerHTML = '';
+  if (A.ctx) { const eb = document.createElement('button'); eb.className = 'btn'; eb.style.marginBottom = '10px'; eb.textContent = 'Sortir du groupe « ' + (A.groups[A.ctx] ? A.groups[A.ctx].name : '') + ' »'; eb.onclick = () => { A.ctx = A.groups[A.ctx] ? A.groups[A.ctx].parent || null : null; setSels([]); updateUI(); redraw(); }; box.appendChild(eb); }
+  if (!o) { box.insertAdjacentHTML('beforeend', '<div class="empty">Aucun objet sélectionné. Avec l\'outil « Sélection », touche un objet de la scène. Pour en choisir plusieurs, active « Multi ».</div>'); return; }
+  const m = modById.get(o.module), fl = flOf(o), ly = lyOf(o), g = o.g && A.groups[o.g];
+  box.insertAdjacentHTML('beforeend', `<dl class="kv"><dt>Module</dt><dd id="kvm"></dd><dt>Position</dt><dd>x ${o.x}, y ${o.y}</dd><dt>Ordre manuel</dt><dd>${o.z}</dd><dt>Calque</dt><dd id="kvl"></dd><dt>Groupe</dt><dd id="kvg"></dd></dl>`);
+  $('#kvm', box).textContent = os.length > 1 ? os.length + ' objets sélectionnés' : (m ? m.name : '(module absent)');
+  $('#kvl', box).textContent = fl && ly ? fl.name + ' / ' + ly.name : '—'; $('#kvg', box).textContent = g ? g.name : '—';
   const pad = document.createElement('div'); pad.className = 'dpad';
   const mk = (t, dx, dy, area) => { const b = document.createElement('button'); b.className = 'btn'; b.textContent = t; b.setAttribute('aria-label', 'Déplacer'); b.style.gridArea = area; b.onclick = () => nudge(dx, dy); pad.appendChild(b); };
   mk('↑', 0, -1, '1 / 2'); mk('←', -1, 0, '2 / 1'); mk('→', 1, 0, '2 / 3'); mk('↓', 0, 1, '3 / 2');
@@ -1329,27 +1426,15 @@ function renderObj() {
   box.appendChild(pad);
   const st = document.createElement('div'); st.className = 'stack';
   const add = (t, fn, cls = '') => { const b = document.createElement('button'); b.className = 'btn ' + cls; b.textContent = t; b.onclick = fn; st.appendChild(b); };
-  add('Mettre devant (+1)', () => { const b = snap(); o.z += 1; pushUndo(b); });
-  add('Mettre derrière (−1)', () => { const b = snap(); o.z -= 1; pushUndo(b); });
-  add('Remettre l\'ordre automatique', () => { if (o.z) { const b = snap(); o.z = 0; pushUndo(b); } });
-  add('Dupliquer', () => { const b = snap(), c = { ...o, id: rid(), x: o.x + (A.snap > 1 ? A.snap : 8), y: o.y }; A.inst.push(c); A.sel = c.id; pushUndo(b); });
+  add('Mettre devant (+1)', () => doStruct(() => os.forEach(q => { q.z += 1; })));
+  add('Mettre derrière (−1)', () => doStruct(() => os.forEach(q => { q.z -= 1; })));
+  add('Remettre l\'ordre automatique', () => { if (os.some(q => q.z)) doStruct(() => os.forEach(q => { q.z = 0; })); });
+  add('Grouper la sélection', groupSel);
+  if (selUnits().some(u => u.k === 'g')) add('Dégrouper', ungroupSel);
+  add('Dupliquer', duplicateSel);
   add('Supprimer', delSel, 'del');
   box.appendChild(st);
-  /* Répéter (ligne / grille) comme « Répéter » du PC : copies espacées, chacune reste modifiable */
-  const m0 = m || { w: 16, h: 16 };
-  const rp = document.createElement('section'); rp.style.marginTop = '14px';
-  rp.innerHTML = '<h3>Répéter</h3><div class="row"><label>Colonnes <input type="number" id="rpC" min="1" max="40" value="3" style="width:56px"></label><label>Lignes <input type="number" id="rpL" min="1" max="40" value="1" style="width:56px"></label></div><div class="row"><label>Pas x <input type="number" id="rpX" style="width:64px"></label><label>Pas y <input type="number" id="rpY" value="0" style="width:64px"></label></div><p class="note">Le pas est la distance entre deux copies (par défaut la largeur du module).</p>';
-  $('#rpX', rp).value = m0.w;
-  const rb = document.createElement('button'); rb.className = 'btn'; rb.textContent = 'Créer les copies';
-  rb.onclick = () => {
-    const c = Math.max(1, Math.min(40, +$('#rpC', rp).value | 0)), l = Math.max(1, Math.min(40, +$('#rpL', rp).value | 0)), dx = +$('#rpX', rp).value | 0, dy = +$('#rpY', rp).value | 0;
-    if (c * l <= 1) return toast('Choisis au moins 2 copies.');
-    if (A.inst.length + c * l > 3000) return toast('Trop d\'objets (3000 maximum).');
-    const b = snap(); let last = null;
-    for (let j = 0; j < l; j++) for (let i = 0; i < c; i++) { if (!i && !j) continue; last = { id: rid(), module: o.module, x: o.x + i * dx, y: o.y + j * dy, z: o.z }; A.inst.push(last); }
-    pushUndo(b); toast((c * l - 1) + ' copie(s) créée(s)');
-  };
-  rp.appendChild(rb); box.appendChild(rp);
+  box.appendChild(repeatSection(o, m));
   /* Redimensionner (entier seulement, pixels nets) : crée un NOUVEAU module, l'original n'est pas touché */
   if (m) {
     const rs = document.createElement('section'); rs.style.marginTop = '14px';
@@ -1361,6 +1446,146 @@ function renderObj() {
     rs.appendChild(row); box.appendChild(rs);
   }
 }
+
+/* ---------- Étages et calques ---------- */
+function renderLay() {
+  const box = $('#ap-lay'); box.innerHTML = '';
+  box.insertAdjacentHTML('beforeend', '<p class="note">Du plus haut (devant) au plus bas (derrière). Les nouveaux objets vont dans le calque marqué ●.</p>');
+  const mkb = (t, fn, title, pressed) => { const b = document.createElement('button'); b.className = 'btn small'; b.textContent = t; b.title = title || ''; b.setAttribute('aria-label', title || t); if (pressed !== undefined) b.setAttribute('aria-pressed', String(pressed)); b.onclick = fn; return b; };
+  const nameInput = (obj, ph) => { const i = document.createElement('input'); i.type = 'text'; i.value = obj.name; i.maxLength = 40; i.setAttribute('aria-label', ph); i.style.cssText = 'flex:1;min-width:0;padding:5px 7px;border:1px solid var(--line);border-radius:6px;background:var(--bg)'; i.onchange = () => { const v = i.value.trim().slice(0, 40); if (v) doStruct(() => { obj.name = v; }); else i.value = obj.name; }; return i; };
+  const swap = (arr, i, d) => { const j = i + d; if (j < 0 || j >= arr.length) return; doStruct(() => { [arr[i], arr[j]] = [arr[j], arr[i]]; }); };
+  const countIn = pred => A.inst.filter(pred).length;
+  for (let fi = A.floors.length - 1; fi >= 0; fi--) {
+    const f = A.floors[fi], card = document.createElement('div'); card.className = 'mbar'; card.style.display = 'grid'; card.style.gap = '6px'; card.style.minWidth = 0; card.style.overflow = 'hidden';
+    const head = document.createElement('div'); head.className = 'row'; head.style.margin = 0; head.style.flexWrap = 'nowrap'; head.style.minWidth = 0;
+    head.append(nameInput(f, 'Nom de l\'étage'), mkb('👁', () => doStruct(() => { f.visible = !f.visible; }), 'Afficher / masquer l\'étage', f.visible), mkb('🔒', () => doStruct(() => { f.locked = !f.locked; }), 'Verrouiller l\'étage', f.locked));
+    const head2 = document.createElement('div'); head2.className = 'row'; head2.style.margin = 0;
+    head2.append(mkb('▲', () => swap(A.floors, fi, 1), 'Monter l\'étage'), mkb('▼', () => swap(A.floors, fi, -1), 'Descendre l\'étage'), mkb('Dupliquer', () => dupFloor(fi), 'Dupliquer l\'étage'),
+      mkb('Supprimer', () => { if (A.floors.length < 2) return toast('Il faut au moins un étage.'); if (countIn(o => o.f === f.id)) return toast('Cet étage contient des objets : vide-le d\'abord.'); doStruct(() => { A.floors.splice(fi, 1); }); }, 'Supprimer l\'étage'), mkb('+ Calque', () => doStruct(() => { f.layers.push({ id: rid(), name: 'Calque ' + (f.layers.length + 1), visible: true, locked: false }); }), 'Ajouter un calque'));
+    card.append(head, head2);
+    for (let li = f.layers.length - 1; li >= 0; li--) {
+      const l = f.layers[li], r = document.createElement('div'), r2 = document.createElement('div'); for (const q of [r, r2]) { q.className = 'row'; q.style.margin = 0; q.style.minWidth = 0; q.style.paddingLeft = '8px'; } r.style.flexWrap = 'nowrap';
+      const active = A.af === f.id && A.al === l.id;
+      r.append(mkb(active ? '●' : '○', () => { A.af = f.id; A.al = l.id; renderLay(); }, 'Poser les nouveaux objets dans ce calque', active), nameInput(l, 'Nom du calque'),
+        mkb('👁', () => doStruct(() => { l.visible = !l.visible; }), 'Afficher / masquer le calque', l.visible), mkb('🔒', () => doStruct(() => { l.locked = !l.locked; }), 'Verrouiller le calque', l.locked));
+      r2.append(mkb('▲', () => swap(f.layers, li, 1), 'Monter le calque'), mkb('▼', () => swap(f.layers, li, -1), 'Descendre le calque'),
+        mkb('Ici', () => { const os = selObjs(); if (!os.length) return toast('Aucun objet sélectionné.'); doStruct(() => os.forEach(q => { q.f = f.id; q.l = l.id; })); }, 'Mettre la sélection dans ce calque'),
+        mkb('✕', () => { if (f.layers.length < 2) return toast('Il faut au moins un calque par étage.'); if (countIn(o => o.l === l.id)) return toast('Ce calque contient des objets : vide-le d\'abord.'); doStruct(() => { f.layers.splice(li, 1); }); }, 'Supprimer le calque'));
+      card.append(r, r2); continue;
+    }
+    box.appendChild(card);
+  }
+  const ad = mkb('+ Étage', () => doStruct(() => { const f = { id: rid(), name: 'Étage ' + A.floors.length, visible: true, locked: false, layers: [{ id: rid(), name: 'Calque 1', visible: true, locked: false }] }; A.floors.push(f); A.af = f.id; A.al = f.layers[0].id; }), 'Ajouter un étage'); ad.style.width = '100%';
+  box.appendChild(ad);
+}
+function dupFloor(fi) {
+  doStruct(() => {
+    const f = A.floors[fi], nf = { id: rid(), name: f.name + ' (copie)', visible: f.visible, locked: false, layers: f.layers.map(l => ({ id: rid(), name: l.name, visible: l.visible, locked: false })) };
+    const lmap = new Map(f.layers.map((l, i) => [l.id, nf.layers[i].id])), gmap = {};
+    const cg = gid => { if (!gid) return null; if (!gmap[gid]) { const g = A.groups[gid], n = rid(); gmap[gid] = n; A.groups[n] = { id: n, name: g.name, parent: cg(g.parent) }; } return gmap[gid]; };
+    for (const o of [...A.inst]) if (o.f === f.id) A.inst.push({ ...o, id: rid(), f: nf.id, l: lmap.get(o.l), g: cg(o.g) });
+    A.floors.splice(fi + 1, 0, nf);
+  });
+}
+
+/* ---------- Répéter : ligne / grille, couvrir une longueur, le long d'un tracé, mur en perspective (comme sur le PC) ---------- */
+const catmull = (p0, p1, p2, p3, t) => { const t2 = t * t, t3 = t2 * t; return [0, 1].map(k => 0.5 * ((2 * p1[k]) + (-p0[k] + p2[k]) * t + (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * t2 + (-p0[k] + 3 * p1[k] - 3 * p2[k] + p3[k]) * t3)); };
+function samplePath(pts, smooth) {
+  const P = pts.map(q => [q.x, q.y]); if (!smooth || P.length === 2) return P;
+  const out = [], e = [P[0], ...P, P[P.length - 1]];
+  for (let i = 1; i < e.length - 2; i++) for (let k = 0; k < 32; k++) out.push(catmull(e[i - 1], e[i], e[i + 1], e[i + 2], k / 32));
+  out.push(P[P.length - 1]); return out;
+}
+const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+function pathPositions(pts, smooth, spacing, count) {
+  const dense = samplePath(pts, smooth); let total = 0; for (let i = 0; i < dense.length - 1; i++) total += dist(dense[i], dense[i + 1]);
+  let targets;
+  if (spacing) { const n = Math.floor(total / spacing) + 1; targets = Array.from({ length: n }, (_, i) => i * spacing); }
+  else targets = count === 1 ? [0] : Array.from({ length: count }, (_, i) => i * total / (count - 1));
+  if (targets.length > 2000) throw new Error('2000 objets au maximum');
+  const out = []; let seg = 0, walked = 0;
+  for (const t of targets) {
+    while (seg < dense.length - 2 && walked + dist(dense[seg], dense[seg + 1]) < t) { walked += dist(dense[seg], dense[seg + 1]); seg++; }
+    const a = dense[seg], b = dense[seg + 1], d = dist(a, b), f = d === 0 ? 0 : Math.min(1, Math.max(0, (t - walked) / d));
+    out.push([Math.round(a[0] + (b[0] - a[0]) * f), Math.round(a[1] + (b[1] - a[1]) * f)]);
+  }
+  return out;
+}
+function coverOffsets(length, piece, fit) {
+  const n = fit === 'within' ? Math.max(1, Math.floor(length / piece)) : Math.ceil(length / piece);
+  if (n > 2000) throw new Error('2000 objets au maximum');
+  return fit === 'exact' && n > 1 ? Array.from({ length: n }, (_, i) => Math.round(i * (length - piece) / (n - 1))) : Array.from({ length: n }, (_, i) => i * piece);
+}
+function perspectiveWall(ox, oy, count, pieceW, slopePct, lastPct) {
+  const last = lastPct / 100, bounds = Array.from({ length: count + 1 }, (_, i) => 1 + (last - 1) * i / count), slope = slopePct / 100, xs = [ox];
+  for (let i = 0; i < count; i++) xs.push(xs[i] + pieceW * (bounds[i] + bounds[i + 1]) / 2);
+  const xr = xs.map(Math.round), ys = xr.map(x => oy + Math.round(slope * (x - xr[0])));
+  return Array.from({ length: count }, (_, i) => ({ x: xr[i], y: ys[i], width: Math.max(1, xr[i + 1] - xr[i]), sl: bounds[i], sr: bounds[i + 1], drop: ys[i + 1] - ys[i] }));
+}
+async function warpPiece(blob, width, sl, sr, drop) {
+  const bm = await createImageBitmap(blob), w0 = bm.width, h0 = bm.height, c0 = document.createElement('canvas'); c0.width = w0; c0.height = h0;
+  const x0 = c0.getContext('2d', { willReadFrequently: true }); x0.drawImage(bm, 0, 0); const src = x0.getImageData(0, 0, w0, h0).data;
+  const hs = new Float64Array(width), bots = new Float64Array(width), tops = new Float64Array(width); let tmin = 1e9, bmax = 0;
+  for (let c = 0; c < width; c++) { const t = (c + .5) / width; hs[c] = h0 * (sl + (sr - sl) * t); bots[c] = drop * t; tops[c] = bots[c] - hs[c]; tmin = Math.min(tmin, tops[c]); bmax = Math.max(bmax, bots[c]); }
+  const top = Math.floor(tmin), outH = Math.max(1, Math.ceil(bmax) - top); if (outH > 4096 || width > 4096) throw new Error('mur trop grand');
+  const out = new ImageData(width, outH);
+  for (let c = 0; c < width; c++) { const xs = Math.min(w0 - 1, Math.floor(c * w0 / width));
+    for (let r = 0; r < outH; r++) { const v = (top + r + .5 - tops[c]) / hs[c]; if (v < 0 || v >= 1) continue; const ys = Math.min(h0 - 1, Math.max(0, Math.floor(v * h0))), si = (ys * w0 + xs) * 4, di = (r * width + c) * 4; out.data[di] = src[si]; out.data[di + 1] = src[si + 1]; out.data[di + 2] = src[si + 2]; out.data[di + 3] = src[si + 3]; } }
+  const c1 = document.createElement('canvas'); c1.width = width; c1.height = outH; c1.getContext('2d').putImageData(out, 0, 0);
+  return { blob: await new Promise(r => c1.toBlob(r, 'image/png')), w: width, h: outH, px: 0, py: -top };
+}
+const hash32 = t => { let h = 5381; for (let i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) | 0; return (h >>> 0).toString(36); };
+async function placeWall(o, m, count, pieceW, slopePct, lastPct, grouped) {
+  const blob = await DB.image(m.id); if (!blob) return toast('Image du module absente.');
+  const pieces = perspectiveWall(o.x, o.y, count, pieceW, slopePct, lastPct), ids = [];
+  for (let i = 0; i < pieces.length; i++) {
+    const p = pieces[i], id = 'w_' + hash32([m.id, p.width, p.sl.toFixed(6), p.sr.toFixed(6), p.drop].join('|'));
+    if (!modById.has(id)) { const wp = await warpPiece(blob, p.width, p.sl, p.sr, p.drop); await addModule({ id, name: m.name + ' perspective ' + (i + 1) + '/' + pieces.length, category: m.category, w: wp.w, h: wp.h, px: wp.px, py: wp.py, tags: [] }, wp.blob); }
+    ids.push(id);
+  }
+  const farLower = pieces[pieces.length - 1].y > pieces[0].y;
+  doStruct(() => {
+    let gid = o.g || null; if (grouped) { gid = rid(); A.groups[gid] = { id: gid, name: 'Mur en perspective', parent: A.ctx }; }
+    A.inst = A.inst.filter(q => q.id !== o.id); const made = [];
+    pieces.forEach((p, i) => { const q = { id: rid(), module: ids[i], x: p.x, y: p.y, z: farLower ? pieces.length - 1 - i : 0, f: o.f, l: o.l, g: gid }; A.inst.push(q); made.push(q.id); });
+    setSels(made);
+  });
+  toast('Mur posé : ' + pieces.length + ' pièces');
+}
+function repeatSection(o, m) {
+  const sec = document.createElement('section'); sec.style.marginTop = '14px';
+  const w0 = m ? m.w : 16, h0 = m ? m.h : 16;
+  sec.innerHTML = '<h3>Répéter</h3><div class="row"><select id="rpMode" class="btn" aria-label="Mode de répétition" style="flex:1"><option value="grid">Ligne ou grille</option><option value="cover">Couvrir une longueur</option><option value="path">Le long d\'un tracé</option><option value="wall">Mur en perspective</option></select></div><div id="rpBody"></div>';
+  const body = $('#rpBody', sec), mode = $('#rpMode', sec);
+  mode.value = repeatMode; mode.onchange = () => { repeatMode = mode.value; if (repeatMode !== 'path' && A.tool === 'trace') setTool('select'); fill(); };
+  const num = (id, label, val, extra = '') => `<label>${label} <input type="number" id="${id}" value="${val}" style="width:68px" ${extra}></label>`;
+  const btn = (txt, fn, cls = '') => { const b = document.createElement('button'); b.className = 'btn ' + cls; b.textContent = txt; b.onclick = () => Promise.resolve(fn()).catch(e => toast(e && e.message ? e.message : 'Action impossible.')); return b; };
+  const copies = list => { if (A.inst.length + list.length > 4000) throw new Error('Trop d\'objets (4000 maximum).'); doStruct(() => { for (const [x, y] of list) A.inst.push({ id: rid(), module: o.module, x, y, z: o.z, f: o.f, l: o.l, g: o.g || null }); }); toast(list.length + ' copie(s) créée(s)'); };
+  const V = id => +$('#' + id, body).value;
+  function fill() {
+    body.innerHTML = ''; const row = html => { const d = document.createElement('div'); d.className = 'row'; d.innerHTML = html; body.appendChild(d); return d; }; const note = t => { const p = document.createElement('p'); p.className = 'note'; p.textContent = t; body.appendChild(p); };
+    if (repeatMode === 'grid') {
+      row(num('rpC', 'Colonnes', 3, 'min=1 max=40') + num('rpL', 'Lignes', 1, 'min=1 max=40')); row(num('rpX', 'Pas x', w0) + num('rpY', 'Pas y', 0)); note('Le pas est la distance entre deux copies (par défaut la largeur du module).');
+      body.appendChild(btn('Créer les copies', () => { const c = Math.max(1, Math.min(40, V('rpC') | 0)), l = Math.max(1, Math.min(40, V('rpL') | 0)), dx = V('rpX') | 0, dy = V('rpY') | 0, list = []; for (let j = 0; j < l; j++) for (let i = 0; i < c; i++) if (i || j) list.push([o.x + i * dx, o.y + j * dy]); if (!list.length) throw new Error('Choisis au moins 2 copies.'); copies(list); }));
+    } else if (repeatMode === 'cover') {
+      row('<label>Sens <select id="rpDir" class="btn"><option value="h">horizontal</option><option value="v">vertical</option></select></label>' + num('rpLen', 'Longueur', 256, 'min=1')); row(num('rpPc', 'Pièce', w0, 'min=1') + '<label>Ajustement <select id="rpFit" class="btn"><option value="over">déborder</option><option value="within">pièces entières</option><option value="exact">pile</option></select></label>');
+      $('#rpDir', body).onchange = () => { $('#rpPc', body).value = $('#rpDir', body).value === 'h' ? w0 : h0; };
+      note('Première pièce = cet objet. « Déborder » couvre tout, « pièces entières » ne dépasse jamais, « pile » étale pour finir exactement à la longueur.');
+      body.appendChild(btn('Couvrir', () => { const horiz = $('#rpDir', body).value === 'h', offs = coverOffsets(Math.max(1, V('rpLen') | 0), Math.max(1, V('rpPc') | 0), $('#rpFit', body).value).slice(1); if (!offs.length) throw new Error('Une seule pièce suffit : rien à ajouter.'); copies(offs.map(d => horiz ? [o.x + d, o.y] : [o.x, o.y + d])); }));
+    } else if (repeatMode === 'path') {
+      row('<label><input type="checkbox" id="rpSm"> Courbe lisse</label>'); row('<label>Régler par <select id="rpBy" class="btn"><option value="sp">espacement</option><option value="n">nombre</option></select></label>' + num('rpV', 'Valeur', w0, 'min=1'));
+      note('1) touche « Tracer », 2) touche la scène pour poser les points (2 minimum), 3) « Créer ». Points : ' + A.trace.length + '.');
+      const r = row(''); r.append(btn(A.tool === 'trace' ? 'Fin du tracé' : 'Tracer', () => { setTool(A.tool === 'trace' ? 'select' : 'trace'); fill(); }), btn('Retirer le dernier point', () => { A.trace.pop(); redraw(); fill(); }), btn('Effacer le tracé', () => { A.trace = []; redraw(); fill(); }));
+      body.appendChild(btn('Créer le long du tracé', () => { if (A.trace.length < 2) throw new Error('Un tracé a besoin d\'au moins 2 points.'); const by = $('#rpBy', body).value, v = Math.max(1, V('rpV') | 0), list = pathPositions(A.trace, $('#rpSm', body).checked, by === 'sp' ? v : null, by === 'n' ? v : null).filter(([x, y]) => x !== o.x || y !== o.y); A.trace = []; if (A.tool === 'trace') setTool('select'); copies(list); fill(); }));
+    } else {
+      row(num('rpN', 'Pièces', 8, 'min=1 max=40') + num('rpW', 'Largeur', w0, 'min=1')); row(num('rpS', 'Pente %', 0, 'min=-300 max=300') + num('rpP', 'Hauteur au loin %', 50, 'min=10 max=100')); row('<label><input type="checkbox" id="rpG" checked> grouper les pièces</label>');
+      note('Remplace cet objet par un mur continu qui s\'éloigne : chaque pièce est une tranche déformée (pixels nets), créée comme nouveau module.');
+      body.appendChild(btn('Poser le mur', async () => { if (!m) throw new Error('Module absent.'); await placeWall(o, m, Math.max(1, Math.min(40, V('rpN') | 0)), Math.max(1, V('rpW') | 0), Math.max(-300, Math.min(300, V('rpS') | 0)), Math.max(10, Math.min(100, V('rpP') | 0)), $('#rpG', body).checked); }));
+    }
+  }
+  fill(); return sec;
+}
+let repeatMode = 'grid';
 async function resizeSel(k) {
   const o = selObj(), m = o && modById.get(o.module), blob = m && await DB.image(m.id); if (!m || !blob) return;
   const f = k > 0 ? k : 1 / -k, nw = Math.round(m.w * f), nh = Math.round(m.h * f);
@@ -1513,24 +1738,70 @@ async function addModule(meta, blob) {
 
 /* ---------- Scène : sauvegarde automatique, nouvelle scène, paquet pour le PC ---------- */
 let saveT = 0;
-const flushScene = () => { clearTimeout(saveT); if (storageOk && DB.db) DB.setKV('scene', { name: A.name, inst: A.inst }).catch(() => {}); };
+const sceneDoc = () => ({ id: A.id, name: A.name, inst: A.inst, floors: A.floors, groups: A.groups, anims: A.anims, af: A.af, al: A.al });
+const flushScene = () => {
+  clearTimeout(saveT); if (!storageOk || !DB.db) return Promise.resolve();
+  return DB.setKV('scene:' + A.id, sceneDoc()).then(async () => {
+    let idx = (await DB.getKV('scenes')) || []; idx = idx.filter(x => x.id !== A.id); idx.unshift({ id: A.id, name: A.name, n: A.inst.length, ts: Date.now() });
+    await DB.setKV('scenes', idx.slice(0, 60)); await DB.setKV('current', A.id);
+  }).catch(() => {});
+};
 function saveSoon() { clearTimeout(saveT); saveT = setTimeout(flushScene, 250); }
 window.addEventListener('pagehide', flushScene);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushScene(); });
-$('#aName').oninput = e => { A.name = e.target.value.slice(0, 60); saveSoon(); };
-$('#aNew').onclick = async () => {
-  if (A.inst.length && !(await confirmBox('Nouvelle scène', 'La scène actuelle sera effacée. Envoie-la d\'abord au PC si tu veux la garder.', 'Effacer et recommencer'))) return;
-  A.inst = []; A.sel = null; undoS.length = 0; redoS.length = 0; A.name = 'Ma scène'; $('#aName').value = A.name; needFit = true; changed(); showTab('mods');
-};
+function loadSceneDoc(d) {
+  const n = v => Number.isInteger(v);
+  const floors = Array.isArray(d.floors) && d.floors.length ? d.floors.filter(f => f && typeof f.id === 'string' && Array.isArray(f.layers) && f.layers.length).map(f => ({ id: f.id, name: String(f.name || 'Étage').slice(0, 40), visible: f.visible !== false, locked: !!f.locked, layers: f.layers.filter(l => l && typeof l.id === 'string').map(l => ({ id: l.id, name: String(l.name || 'Calque').slice(0, 40), visible: l.visible !== false, locked: !!l.locked })) })).filter(f => f.layers.length) : [];
+  A.floors = floors.length ? floors : mkFloors();
+  A.groups = {}; if (d.groups && typeof d.groups === 'object') for (const [id, g] of Object.entries(d.groups)) if (g && typeof g === 'object') A.groups[id] = { id, name: String(g.name || 'Groupe').slice(0, 40), parent: g.parent || null };
+  A.inst = (Array.isArray(d.inst) ? d.inst : []).filter(o => o && typeof o.module === 'string' && n(o.x) && n(o.y)).map(o => normInst({ id: String(o.id || rid()), module: o.module, x: o.x, y: o.y, z: n(o.z) ? o.z : 0, f: o.f, l: o.l, g: o.g || null }));
+  A.anims = Array.isArray(d.anims) ? d.anims.filter(a => a && typeof a.id === 'string' && Array.isArray(a.frames)) : [];
+  A.id = typeof d.id === 'string' ? d.id : rid(); A.name = String(d.name || 'Ma scène').slice(0, 60);
+  A.af = d.af; A.al = d.al; curFL(); pruneGroups(); A.sels = []; A.sel = null; A.ctx = null;
+  undoS.length = 0; redoS.length = 0; $('#aName').value = A.name; needFit = true;
+}
+$('#aName').oninput = e => { A.name = e.target.value.slice(0, 60); saveSoon(); renderSceneList(); };
+async function newScene() {
+  await flushScene();
+  loadSceneDoc({ id: rid(), name: 'Ma scène ' + (((await DB.getKV('scenes')) || []).length + 1) }); changed(); showTab('mods'); await flushScene(); renderSceneList();
+}
+async function openScene(id) {
+  await flushScene();
+  const d = await DB.getKV('scene:' + id); if (!d) return toast('Scène introuvable.');
+  loadSceneDoc(d); changed(); renderSceneList();
+}
+async function deleteScene(id) {
+  if (!(await confirmBox('Supprimer la scène', 'Cette scène sera effacée de ce téléphone (pas du PC).', 'Supprimer'))) return;
+  let idx = ((await DB.getKV('scenes')) || []).filter(x => x.id !== id); await DB.setKV('scenes', idx);
+  try { await rq(DB.db.transaction('meta', 'readwrite').objectStore('meta').delete('scene:' + id)); } catch (e) {}
+  if (id === A.id) { if (idx.length) await openScene(idx[0].id); else { A.inst = []; await newScene(); } }
+  renderSceneList();
+}
+async function renderSceneList() {
+  const box = $('#aScenes'); if (!box || !DB.db) return; const idx = (await DB.getKV('scenes')) || [];
+  if (!idx.some(x => x.id === A.id)) idx.unshift({ id: A.id, name: A.name, n: A.inst.length });
+  box.innerHTML = '';
+  for (const it of idx) {
+    const row = document.createElement('div'); row.className = 'row'; row.style.margin = '0 0 6px'; row.style.flexWrap = 'nowrap';
+    const b = document.createElement('button'); b.className = 'btn small'; b.style.cssText = 'flex:1;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'; b.setAttribute('aria-pressed', String(it.id === A.id));
+    b.textContent = (it.id === A.id ? A.name : it.name) + (it.n !== undefined ? ' (' + (it.id === A.id ? A.inst.length : it.n) + ')' : ''); b.onclick = () => { if (it.id !== A.id) openScene(it.id); };
+    const d = document.createElement('button'); d.className = 'btn small'; d.textContent = '✕'; d.setAttribute('aria-label', 'Supprimer la scène'); d.onclick = () => deleteScene(it.id);
+    row.append(b, d); box.appendChild(row);
+  }
+}
+$('#aNew').onclick = newScene;
 async function blobB64(blob) { const buf = new Uint8Array(await blob.arrayBuffer()); let s = ''; for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000)); return btoa(s); }
 async function buildPack() {
-  const used = [...new Set(A.inst.map(o => o.module))], modules = [];
+  const used = [...new Set([...A.inst.map(o => o.module), ...A.anims.flatMap(a => a.frames.map(f => f.module))])], modules = [];
   for (const id of used) {
     const m = modById.get(id), blob = m && await DB.image(id); if (!m || !blob) continue;
     modules.push({ id, name: m.name, category: m.category, w: m.w, h: m.h, px: m.px, py: m.py, png: await blobB64(blob) });
   }
   const ok = new Set(modules.map(m => m.id)), skipped = A.inst.filter(o => !ok.has(o.module)).length;
-  const doc = { format: 'sbs-scene-pack', version: 1, name: A.name || 'Scène du téléphone', modules, instances: A.inst.filter(o => ok.has(o.module)).map(o => ({ module: o.module, x: o.x, y: o.y, z: o.z })) };
+  const gs = {}; const keep = A.inst.filter(o => ok.has(o.module)); keep.forEach(o => chainOf(o.g).forEach(g => { gs[g] = { name: A.groups[g].name, parent: A.groups[g].parent || null }; }));
+  const doc = { format: 'sbs-scene-pack', version: 1, name: A.name || 'Scène du téléphone', modules, instances: keep.map(o => ({ module: o.module, x: o.x, y: o.y, z: o.z, floor: o.f, layer: o.l, group: o.g || null })),
+    floors: A.floors.map(f => ({ id: f.id, name: f.name, visible: f.visible, locked: f.locked, layers: f.layers.map(l => ({ id: l.id, name: l.name, visible: l.visible, locked: l.locked })) })), groups: gs,
+    animations: A.anims.map(a => ({ name: a.name, fps: a.fps, loop: a.loop, frames: a.frames.filter(f => ok.has(f.module)).map(f => ({ module: f.module, hold: f.hold })) })) };
   return { blob: new Blob([JSON.stringify(doc)], { type: 'application/json' }), skipped };
 }
 const packName = () => slugOf(A.name) + '.sbsscene.json';
@@ -1547,6 +1818,170 @@ $('#aShare').onclick = async () => {
     else { await U().saveBlob(blob, packName()); toast('Partage indisponible ici : fichier enregistré à la place.'); }
   } catch (e) { if (e && e.name !== 'AbortError' && e.code !== 'declined') toast('Le partage a échoué : utilise « Enregistrer le fichier ».'); }
 };
+
+
+
+/* ---------- Animations image par image ---------- */
+let animCur = null, animUrls = [], animRaf = 0, animT0 = 0, animPlaying = true;
+const stopAnim = () => { cancelAnimationFrame(animRaf); animRaf = 0; };
+function frameIndexAt(a, tMs) {
+  const total = a.frames.reduce((n, f) => n + f.hold, 0); if (!a.frames.length || !total) return -1;
+  let tick = Math.floor(Math.max(0, tMs) * a.fps / 1000); tick = a.loop ? tick % total : Math.min(tick, total - 1);
+  for (let i = 0; i < a.frames.length; i++) { if (tick < a.frames[i].hold) return i; tick -= a.frames[i].hold; } return a.frames.length - 1;
+}
+function renderAnim() {
+  stopAnim(); animUrls.forEach(u => URL.revokeObjectURL(u)); animUrls = [];
+  const box = $('#ap-anim'); box.innerHTML = '';
+  if (!animCur || !A.anims.some(a => a.id === animCur)) animCur = A.anims.length ? A.anims[0].id : null;
+  const cur = A.anims.find(a => a.id === animCur), save = () => { saveSoon(); };
+  const top = document.createElement('div'); top.className = 'row';
+  const sel = document.createElement('select'); sel.className = 'btn'; sel.style.cssText = 'flex:1;min-width:0'; sel.setAttribute('aria-label', 'Animation');
+  A.anims.forEach(a => { const op = document.createElement('option'); op.value = a.id; op.textContent = a.name; if (a.id === animCur) op.selected = true; sel.appendChild(op); }); sel.onchange = () => { animCur = sel.value; renderAnim(); };
+  const nw = document.createElement('button'); nw.className = 'btn small'; nw.textContent = '+ Nouvelle'; nw.onclick = () => { if (A.anims.length >= 50) return toast('50 animations au maximum.'); const a = { id: rid(), name: 'Animation ' + (A.anims.length + 1), fps: 8, loop: true, frames: [] }; A.anims.push(a); animCur = a.id; save(); renderAnim(); };
+  top.append(...(A.anims.length ? [sel] : []), nw); box.appendChild(top);
+  if (!cur) { box.insertAdjacentHTML('beforeend', '<div class="empty">Une animation est une suite d\'images (des modules) qui défilent. Touche « + Nouvelle », puis ajoute des images.</div>'); return; }
+  const f1 = document.createElement('div'); f1.className = 'row';
+  f1.innerHTML = '<input id="anName" type="text" maxlength="40" aria-label="Nom" style="flex:1 1 100%;min-width:0;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg)"><label>Images/s <input id="anFps" type="number" min="1" max="60" style="width:56px"></label><label><input id="anLoop" type="checkbox"> boucle</label>';
+  box.appendChild(f1); $('#anName', f1).value = cur.name; $('#anFps', f1).value = cur.fps; $('#anLoop', f1).checked = cur.loop;
+  $('#anName', f1).onchange = e => { const v = e.target.value.trim().slice(0, 40); if (v) { cur.name = v; save(); renderAnim(); } };
+  $('#anFps', f1).onchange = e => { cur.fps = Math.max(1, Math.min(60, +e.target.value | 0 || 8)); e.target.value = cur.fps; save(); };
+  $('#anLoop', f1).onchange = e => { cur.loop = e.target.checked; save(); };
+  const pv = document.createElement('canvas'); pv.className = 'pvc'; pv.width = 128; pv.height = 128; pv.style.width = '128px'; pv.style.height = '128px'; box.appendChild(pv);
+  const ctrl = document.createElement('div'); ctrl.className = 'row'; ctrl.style.justifyContent = 'center';
+  const pp = document.createElement('button'); pp.className = 'btn small'; pp.textContent = animPlaying ? 'Pause' : 'Lecture'; pp.onclick = () => { animPlaying = !animPlaying; pp.textContent = animPlaying ? 'Pause' : 'Lecture'; if (animPlaying) { animT0 = performance.now(); runPreview(); } };
+  ctrl.appendChild(pp); box.appendChild(ctrl);
+  const addRow = document.createElement('div'); addRow.className = 'stack';
+  const ab = (t, fn) => { const b = document.createElement('button'); b.className = 'btn'; b.textContent = t; b.onclick = fn; addRow.appendChild(b); };
+  const push = id => { if (cur.frames.length >= 256) return toast('256 images au maximum.'); if (!modById.has(id)) return toast('Module absent.'); cur.frames.push({ module: id, hold: 1 }); save(); renderAnim(); };
+  ab('Ajouter le module choisi (liste Modules)', () => A.mod ? push(A.mod) : toast('Choisis d\'abord un module dans l\'onglet Modules.'));
+  ab('Ajouter l\'objet sélectionné', () => { const o = selObj(); o ? push(o.module) : toast('Aucun objet sélectionné.'); });
+  ab('Ajouter tous les objets sélectionnés (dans l\'ordre)', () => { const os = selObjs(); if (!os.length) return toast('Aucun objet sélectionné.'); os.forEach(o => { if (cur.frames.length < 256) cur.frames.push({ module: o.module, hold: 1 }); }); save(); renderAnim(); });
+  box.appendChild(addRow);
+  const list = document.createElement('div'); list.style.marginTop = '10px';
+  cur.frames.forEach((fr, i) => {
+    const r = document.createElement('div'); r.className = 'row'; r.style.cssText = 'margin:0 0 6px;flex-wrap:nowrap;gap:6px';
+    const th = document.createElement('div'); th.className = 'th'; th.style.cssText = 'width:40px;height:40px;background:var(--stage);border-radius:4px;display:grid;place-items:center;overflow:hidden;flex:none'; const im = document.createElement('img'); im.alt = ''; im.style.cssText = 'image-rendering:pixelated;max-width:100%;max-height:100%'; th.appendChild(im);
+    DB.image(fr.module).then(bl => { if (bl) { const u = URL.createObjectURL(bl); animUrls.push(u); im.src = u; } });
+    const nm = document.createElement('span'); nm.style.cssText = 'flex:1;min-width:0;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'; nm.textContent = (i + 1) + '. ' + ((modById.get(fr.module) || {}).name || '(absent)');
+    const hd = document.createElement('input'); hd.type = 'number'; hd.min = 1; hd.max = 100; hd.value = fr.hold; hd.title = 'Durée (en tops)'; hd.setAttribute('aria-label', 'Durée'); hd.style.cssText = 'width:52px;padding:4px;border:1px solid var(--line);border-radius:6px;background:var(--bg)'; hd.onchange = () => { fr.hold = Math.max(1, Math.min(100, +hd.value | 0 || 1)); hd.value = fr.hold; save(); };
+    const mk = (t, fn, lab) => { const b = document.createElement('button'); b.className = 'btn small'; b.textContent = t; b.setAttribute('aria-label', lab); b.onclick = fn; return b; };
+    r.append(th, nm, hd, mk('▲', () => { if (i) { [cur.frames[i - 1], cur.frames[i]] = [cur.frames[i], cur.frames[i - 1]]; save(); renderAnim(); } }, 'Monter'), mk('▼', () => { if (i < cur.frames.length - 1) { [cur.frames[i + 1], cur.frames[i]] = [cur.frames[i], cur.frames[i + 1]]; save(); renderAnim(); } }, 'Descendre'), mk('✕', () => { cur.frames.splice(i, 1); save(); renderAnim(); }, 'Retirer'));
+    list.appendChild(r);
+  });
+  box.appendChild(list);
+  const del = document.createElement('button'); del.className = 'btn del'; del.style.marginTop = '10px'; del.textContent = 'Supprimer cette animation'; del.onclick = () => { A.anims = A.anims.filter(a => a.id !== cur.id); animCur = null; save(); renderAnim(); }; box.appendChild(del);
+  animT0 = performance.now(); runPreview();
+  function runPreview() {
+    stopAnim(); const g = pv.getContext('2d'); g.imageSmoothingEnabled = false;
+    const tick = async () => {
+      const i = frameIndexAt(cur, performance.now() - animT0); g.clearRect(0, 0, 128, 128);
+      if (i >= 0) { const bm = bitmapOf(cur.frames[i].module); if (bm) { const k = Math.max(1, Math.floor(Math.min(128 / bm.width, 128 / bm.height))); g.drawImage(bm, Math.round((128 - bm.width * k) / 2), Math.round(128 - bm.height * k - 4), bm.width * k, bm.height * k); } }
+      if (animPlaying && $('#ap-anim') && !$('#ap-anim').hidden) animRaf = requestAnimationFrame(tick);
+    };
+    tick();
+  }
+}
+
+/* ---------- Exports : image PNG, scène Godot 4, JSON structuré (mêmes formats que la version PC) ---------- */
+const safeName = (t, fb) => String(t).normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^\x00-\x7F]/g, '').trim().replace(/[^0-9A-Za-z_\-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60) || fb;
+const uniq = (name, used) => { const base = name; let n = 2; while (used.has(name)) { name = base + '_' + n; n++; } used.add(name); return name; };
+const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+const crc32 = b => { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+function makeZip(files) {   // files : { 'dossier/nom': Uint8Array } -> Blob .zip (sans compression)
+  const enc = new TextEncoder(), parts = [], central = []; let off = 0;
+  const d = new Date(), dt = ((d.getFullYear() - 1980) << 9 | (d.getMonth() + 1) << 5 | d.getDate()) & 0xFFFF, tm = (d.getHours() << 11 | d.getMinutes() << 5 | (d.getSeconds() >> 1)) & 0xFFFF;
+  for (const [name, data] of Object.entries(files)) {
+    const nb = enc.encode(name), crc = crc32(data), h = new DataView(new ArrayBuffer(30));
+    h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, 0, true); h.setUint16(10, tm, true); h.setUint16(12, dt, true);
+    h.setUint32(14, crc, true); h.setUint32(18, data.length, true); h.setUint32(22, data.length, true); h.setUint16(26, nb.length, true); h.setUint16(28, 0, true);
+    parts.push(h.buffer, nb, data);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true); c.setUint16(10, 0, true); c.setUint16(12, tm, true); c.setUint16(14, dt, true);
+    c.setUint32(16, crc, true); c.setUint32(20, data.length, true); c.setUint32(24, data.length, true); c.setUint16(28, nb.length, true); c.setUint32(42, off, true);
+    central.push(c.buffer, nb); off += 30 + nb.length + data.length;
+  }
+  let csize = 0; for (const x of central) csize += x.byteLength;
+  const e = new DataView(new ArrayBuffer(22)); e.setUint32(0, 0x06054b50, true); e.setUint16(8, central.length / 2, true); e.setUint16(10, central.length / 2, true); e.setUint32(12, csize, true); e.setUint32(16, off, true);
+  return new Blob([...parts, ...central, e.buffer], { type: 'application/zip' });
+}
+async function buildExportScene() {
+  const ord = order(), rank = new Map(ord.map((idx, n) => [A.inst[idx].id, n])), textures = {}, files = new Set(), warnings = [], bytes = {};
+  const floors = [];
+  for (const f of A.floors) {
+    const ef = { id: f.id, name: f.name, visible: f.visible, locked: f.locked, layers: [] };
+    for (const l of f.layers) {
+      const el = { id: l.id, name: l.name, visible: l.visible, locked: l.locked, items: [] }, names = new Set();
+      const here = A.inst.filter(o => o.f === f.id && o.l === l.id).sort((a, b) => rank.get(a.id) - rank.get(b.id));
+      for (const o of here) {
+        const m = modById.get(o.module), blob = m && await DB.image(o.module);
+        if (!m || !blob) { warnings.push('objet ignoré : module ou image absents (' + o.module + ')'); continue; }
+        if (!textures[o.module]) {
+          const u8 = new Uint8Array(await blob.arrayBuffer()); bytes[o.module] = u8;
+          let sha = ''; try { sha = [...new Uint8Array(await crypto.subtle.digest('SHA-256', u8))].map(x => x.toString(16).padStart(2, '0')).join(''); } catch (e) {}
+          textures[o.module] = { key: o.module, filename: uniq(safeName(m.name, 'sprite'), files) + '.png', source_id: m.name, w: m.w, h: m.h, pivot: [m.px, m.py], sha256: sha };
+        }
+        el.items.push({ id: o.id, name: uniq(safeName(m.name, 'objet'), names), texture: o.module, x: o.x, y: o.y, z: o.z, group: o.g || null, draw_index: rank.get(o.id), visible: f.visible && l.visible });
+      }
+      ef.layers.push(el);
+    }
+    floors.push(ef);
+  }
+  const groups = Object.values(A.groups).map(g => ({ id: g.id, name: g.name, parent_id: g.parent || null }));
+  const anims = A.anims.map(a => ({ id: a.id, name: a.name, fps: a.fps, loop: a.loop, frames: a.frames.map(fr => { const t = textures[fr.module], m = modById.get(fr.module); return { source_id: m ? m.name : null, variant: null, hold: fr.hold, texture: t ? t.filename : null }; }) }));
+  return { name: safeName(A.name, 'scene'), floors, textures, bytes, groups, anims, warnings };
+}
+const gq = t => '"' + t.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+function buildTscn(sc) {
+  const keys = Object.keys(sc.textures), ids = {}; keys.forEach((k, n) => { ids[k] = (n + 1) + '_' + sc.textures[k].filename.replace(/\.png$/, '').slice(0, 20); });
+  const out = ['[gd_scene load_steps=' + (keys.length + 1) + ' format=3]', ''];
+  for (const k of keys) out.push('[ext_resource type="Texture2D" path=' + gq('res://sprites/' + sc.textures[k].filename) + ' id=' + gq(ids[k]) + ']');
+  out.push('', '[node name=' + gq(sc.name) + ' type="Node2D"]', 'texture_filter = 1', 'metadata/sbs_export = true', '');
+  const usedF = new Set();
+  for (const f of sc.floors) {
+    const fname = uniq(safeName(f.name, 'etage'), usedF);
+    out.push('[node name=' + gq(fname) + ' type="Node2D" parent="."]'); if (!f.visible) out.push('visible = false'); if (f.locked) out.push('metadata/_edit_lock_ = true'); out.push('metadata/sbs_label = ' + gq(f.name), '');
+    const usedL = new Set();
+    for (const l of f.layers) {
+      const lname = uniq(safeName(l.name, 'calque'), usedL);
+      out.push('[node name=' + gq(lname) + ' type="Node2D" parent=' + gq(fname) + ']'); if (!l.visible) out.push('visible = false'); if (l.locked) out.push('metadata/_edit_lock_ = true'); out.push('metadata/sbs_label = ' + gq(l.name), '');
+      for (const it of l.items) {
+        const t = sc.textures[it.texture];
+        out.push('[node name=' + gq(it.name) + ' type="Sprite2D" parent=' + gq(fname + '/' + lname) + ']', 'position = Vector2(' + it.x + ', ' + it.y + ')', 'texture = ExtResource(' + gq(ids[it.texture]) + ')', 'centered = false', 'offset = Vector2(' + (-t.pivot[0]) + ', ' + (-t.pivot[1]) + ')', 'metadata/sbs_id = ' + gq(it.id), 'metadata/sbs_draw_index = ' + it.draw_index);
+        if (it.z) out.push('metadata/sbs_z = ' + it.z); if (it.group) out.push('metadata/sbs_group = ' + gq(it.group)); out.push('');
+      }
+    }
+  }
+  return out.join('\n').replace(/\s+$/, '') + '\n';
+}
+async function exportGodot() {
+  const sc = await buildExportScene(); if (!sc.floors.some(f => f.layers.some(l => l.items.length))) return toast('La scène est vide.');
+  const enc = new TextEncoder(), files = {}; files[sc.name + '.tscn'] = enc.encode(buildTscn(sc));
+  for (const k of Object.keys(sc.textures)) files['sprites/' + sc.textures[k].filename] = sc.bytes[k];
+  if ($('#aGodotProj').checked) files['project.godot'] = enc.encode('; Projet de test généré par Sprite Builder Studio\nconfig_version=5\n\n[application]\n\nconfig/name=' + gq(sc.name) + '\nrun/main_scene="res://' + sc.name + '.tscn"\nconfig/features=PackedStringArray("4.2")\n\n[rendering]\n\nrenderer/rendering_method="gl_compatibility"\ntextures/canvas_textures/default_texture_filter=0\n');
+  await U().saveBlob(makeZip(files), sc.name + '-godot.zip'); toast('Export Godot enregistré' + (sc.warnings.length ? ' (' + sc.warnings.length + ' avertissement(s))' : ''));
+}
+async function exportJson() {
+  const sc = await buildExportScene(); if (!sc.floors.some(f => f.layers.some(l => l.items.length))) return toast('La scène est vide.');
+  const doc = { format: 'sbs-scene-export', version: 1, name: sc.name, coordinates: "pixels ; x vers la droite, y vers le bas ; (x, y) = pivot de l'objet", draw_order: 'du fond vers le devant : étage, calque, z manuel, profondeur (y), insertion',
+    textures: Object.values(sc.textures).map(t => ({ file: 'textures/' + t.filename, key: t.key, source_id: t.source_id, variant: null, size: [t.w, t.h], pivot: t.pivot, sha256: t.sha256 })),
+    floors: sc.floors.map(f => ({ id: f.id, name: f.name, visible: f.visible, locked: f.locked, elevation_px: 0, layers: f.layers.map(l => ({ id: l.id, name: l.name, visible: l.visible, locked: l.locked, items: l.items.map(i => { const t = sc.textures[i.texture]; return { id: i.id, name: i.name, draw_index: i.draw_index, texture: t.filename, position: [i.x, i.y], top_left: [i.x - t.pivot[0], i.y - t.pivot[1]], z_manual: i.z, group: i.group, visible: i.visible }; }) })) })),
+    groups: sc.groups, animations: sc.anims, warnings: sc.warnings };
+  const enc = new TextEncoder(), files = {}; files[sc.name + '.json'] = enc.encode(JSON.stringify(doc, null, 1));
+  for (const k of Object.keys(sc.textures)) files['textures/' + sc.textures[k].filename] = sc.bytes[k];
+  await U().saveBlob(makeZip(files), sc.name + '-json.zip'); toast('Export JSON enregistré');
+}
+async function exportPng() {
+  const shownIdx = order().filter(i => shown(A.inst[i]));
+  if (!shownIdx.length) return toast('Rien à exporter (scène vide ou calques masqués).');
+  const k = +$('#aPngScale').value || 1; let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  for (const i of shownIdx) { const r = rectOf(A.inst[i]); x0 = Math.min(x0, r.x); y0 = Math.min(y0, r.y); x1 = Math.max(x1, r.x + r.w); y1 = Math.max(y1, r.y + r.h); }
+  const W = (x1 - x0) * k, H = (y1 - y0) * k; if (W > 16000 || H > 16000 || W * H > 120e6) return toast('Image trop grande : choisis un facteur plus petit.');
+  const c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d'); g.imageSmoothingEnabled = false;
+  for (const i of shownIdx) { const o = A.inst[i], r = rectOf(o), blob = await DB.image(o.module); if (!blob) continue; g.drawImage(await createImageBitmap(blob), (r.x - x0) * k, (r.y - y0) * k, r.w * k, r.h * k); }
+  const out = await new Promise(r => c.toBlob(r, 'image/png')); await U().saveBlob(out, safeName(A.name, 'scene') + (k > 1 ? '-x' + k : '') + '.png'); toast('Image enregistrée (' + W + '×' + H + ')');
+}
+const guard = fn => async () => { try { await fn(); } catch (e) { if (!e || e.code !== 'declined') toast("L'export a échoué."); } };
+$('#aExpPng').onclick = guard(exportPng); $('#aExpGodot').onclick = guard(exportGodot); $('#aExpJson').onclick = guard(exportJson);
 
 /* ---------- Mode Dessiner / Assembler ---------- */
 function setMode(m) {
@@ -1574,10 +2009,12 @@ $('#bToMod').onclick = async () => {
   try { const s = +localStorage.getItem('atelier-pixel:snap'); if ([1, 4, 8, 16, 32, 64].includes(s)) { A.snap = s; $('#aSnap').value = String(s); } } catch (e) {}
   try {
     await DB.open(); await reloadMods();
-    const sc = await DB.getKV('scene');
-    if (sc && Array.isArray(sc.inst)) { A.inst = sc.inst.filter(o => o && typeof o.module === 'string' && Number.isInteger(o.x) && Number.isInteger(o.y)).map(o => ({ id: String(o.id || rid()), module: o.module, x: o.x, y: o.y, z: Number.isInteger(o.z) ? o.z : 0 })); A.name = String(sc.name || 'Ma scène'); }
+    let sc = null; const cur = await DB.getKV('current');
+    if (cur) sc = await DB.getKV('scene:' + cur);
+    if (!sc) { const old = await DB.getKV('scene'); if (old && Array.isArray(old.inst)) sc = old; }  /* ancienne version : une seule scène */
+    if (sc) loadSceneDoc(sc);
   } catch (e) { storageOk = false; $('#aLibNote').textContent = "Le stockage du navigateur est indisponible : les modules ne peuvent pas être gardés."; }
-  $('#aName').value = A.name; renderMods(); updateUI(); setTool('place');
+  $('#aName').value = A.name; renderMods(); updateUI(); setTool('place'); renderSceneList();
   if (storageOk && !MODS.length && location.protocol.startsWith('http')) loadStarter(true);
   let m = 'draw'; try { m = localStorage.getItem('atelier-pixel:mode') === 'asm' ? 'asm' : 'draw'; } catch (e) {}
   if (location.hash === '#assembler') m = 'asm';
@@ -1587,6 +2024,7 @@ $('#bToMod').onclick = async () => {
 })();
 
 </script>
+
 <script>
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(function () {});
 </script>

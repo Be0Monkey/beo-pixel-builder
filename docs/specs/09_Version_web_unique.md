@@ -15,9 +15,10 @@
 | Répéter en ligne / grille | ✔ |
 | Redimensionner (×2 à ×4, ÷2, ÷3, nouveau module) | ✔ |
 | Envoi de la scène au PC (paquet scène) | ✔ |
-| Étages / calques de scène / groupes | ○ |
-| Répéter le long d'un tracé, couvrir une longueur, mur en perspective | ○ |
+| Étages / calques de scène / groupes / multi-sélection | ✔ |
+| Répéter le long d'un tracé, couvrir une longueur, mur en perspective | ✔ |
 | Variantes, cartes de normales, aperçu éclairé | ○ |
-| Animations | ○ |
-| Export PNG de la scène, export Godot / JSON | ○ |
-| Sauvegarde de plusieurs scènes, versions | ○ |
+| Animations (images, durée, boucle, aperçu) | ✔ |
+| Export PNG de la scène, export Godot / JSON | ✔ |
+| Sauvegarde de plusieurs scènes | ✔ |
+| Versions / sauvegardes horodatées | ○ |

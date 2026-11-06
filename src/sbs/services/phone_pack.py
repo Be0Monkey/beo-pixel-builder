@@ -16,7 +16,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from sbs.domain.ids import new_id
-from sbs.domain.scene import Floor, Instance, default_floors
+from sbs.domain.animation import MAX_FPS, MAX_FRAMES, MAX_HOLD, Animation, Frame
+from sbs.domain.scene import MAX_GROUP_DEPTH, Floor, Group, Instance, Layer, default_floors
 from sbs.services.atomic import write_text_atomic
 from sbs.services.batch_import import find_local_by_sha
 from sbs.services.library import Library, LibraryError
@@ -77,6 +78,9 @@ class PackInstance:
     x: int
     y: int
     z: int = 0
+    floor: str | None = None  # identifiants du paquet (facultatifs)
+    layer: str | None = None
+    group: str | None = None
 
 
 @dataclass
@@ -84,6 +88,9 @@ class ScenePack:
     name: str
     modules: dict[str, PackModule] = field(default_factory=dict)
     instances: list[PackInstance] = field(default_factory=list)
+    floors: list[dict] = field(default_factory=list)       # [{id, name, visible, locked, layers:[{id, name, visible, locked}]}]
+    groups: dict[str, dict] = field(default_factory=dict)  # id -> {name, parent}
+    animations: list[dict] = field(default_factory=list)   # [{name, fps, loop, frames:[{module, hold}]}]
 
 
 def _int(v: object, what: str, lo: int, hi: int) -> int:
@@ -155,10 +162,50 @@ def parse_scene_pack(text: str) -> ScenePack:
         mod = i.get("module")
         if not isinstance(mod, str) or mod not in pack.modules:
             raise PackError(f"paquet invalide : l'objet n°{n} utilise un module absent du paquet")
+        ref = lambda k: i.get(k) if isinstance(i.get(k), str) and len(i.get(k)) <= 64 else None  # noqa: E731
         pack.instances.append(PackInstance(mod, _int(i.get("x"), "x", -1_000_000, 1_000_000),
                                            _int(i.get("y"), "y", -1_000_000, 1_000_000),
-                                           _int(i.get("z", 0), "z", -1_000_000, 1_000_000)))
+                                           _int(i.get("z", 0), "z", -1_000_000, 1_000_000),
+                                           ref("floor"), ref("layer"), ref("group")))
+    _read_structure(pack, doc)
     return pack
+
+
+def _name(v: object, default: str) -> str:
+    return " ".join(str(v or default).split())[:40] or default
+
+
+def _read_structure(pack: ScenePack, doc: dict) -> None:
+    """Étages, calques, groupes, animations : facultatifs, lus avec indulgence (le reste de la scène passe toujours)."""
+    floors = doc.get("floors")
+    if isinstance(floors, list):
+        for f in floors[:50]:
+            if not isinstance(f, dict) or not isinstance(f.get("id"), str) or not isinstance(f.get("layers"), list):
+                continue
+            layers = [{"id": l["id"], "name": _name(l.get("name"), "Calque"), "visible": l.get("visible") is not False,
+                       "locked": l.get("locked") is True}
+                      for l in f["layers"][:50] if isinstance(l, dict) and isinstance(l.get("id"), str)]
+            if layers:
+                pack.floors.append({"id": f["id"], "name": _name(f.get("name"), "Étage"),
+                                    "visible": f.get("visible") is not False, "locked": f.get("locked") is True,
+                                    "layers": layers})
+    groups = doc.get("groups")
+    if isinstance(groups, dict):
+        for gid, g in list(groups.items())[:2000]:
+            if isinstance(gid, str) and isinstance(g, dict):
+                parent = g.get("parent")
+                pack.groups[gid] = {"name": _name(g.get("name"), "Groupe"), "parent": parent if isinstance(parent, str) else None}
+    anims = doc.get("animations")
+    if isinstance(anims, list):
+        for a in anims[:50]:
+            if not isinstance(a, dict) or not isinstance(a.get("frames"), list):
+                continue
+            frames = [{"module": fr["module"], "hold": fr.get("hold") if isinstance(fr.get("hold"), int) and 1 <= fr["hold"] <= MAX_HOLD else 1}
+                      for fr in a["frames"][:MAX_FRAMES] if isinstance(fr, dict) and fr.get("module") in pack.modules]
+            fps = a.get("fps")
+            pack.animations.append({"name": _name(a.get("name"), "Animation"),
+                                    "fps": fps if isinstance(fps, int) and 1 <= fps <= MAX_FPS else 8,
+                                    "loop": a.get("loop") is not False, "frames": frames})
 
 
 # --------------------------------------------------------------------------- import dans la bibliothèque
@@ -169,6 +216,8 @@ class ImportResult:
     floors: list[Floor]
     reused: int = 0
     created: int = 0
+    groups: dict[str, Group] = field(default_factory=dict)
+    animations: dict[str, Animation] = field(default_factory=dict)
 
 
 def import_scene_pack(library: Library, pack: ScenePack) -> ImportResult:
@@ -193,11 +242,68 @@ def import_scene_pack(library: Library, pack: ScenePack) -> ImportResult:
         for uuid in created_now:  # rien à moitié fait
             library.delete_asset(uuid)
         raise PackError(f"import impossible : {exc}") from exc
-    floors = default_floors()
-    fid, lid = floors[0].id, floors[0].layers[0].id
-    instances = [Instance(new_id(), mapping[i.module], i.x, i.y, i.z, None, fid, lid, None) for i in pack.instances]
+    floors, fmap, lmap = [], {}, {}
+    for f in pack.floors:
+        nf = Floor(new_id(), f["name"], 0, f["visible"], f["locked"], [])
+        for l in f["layers"]:
+            nl = Layer(new_id(), l["name"], l["visible"], l["locked"])
+            nf.layers.append(nl)
+            lmap[(f["id"], l["id"])] = (nf.id, nl.id)
+        fmap[f["id"]] = nf
+        floors.append(nf)
+    if not floors:
+        floors = default_floors()
+    groups = _build_groups(pack.groups)
+    instances = []
+    for i in pack.instances:
+        fid, lid = lmap.get((i.floor, i.layer)) or (floors[0].id, floors[0].layers[0].id)
+        group = groups[1].get(i.group)
+        instances.append(Instance(new_id(), mapping[i.module], i.x, i.y, i.z, None, fid, lid, group))
+    used = {g for g in (inst.group_id for inst in instances) if g}
+    group_objs = _prune(groups[0], used)
+    animations = {}
+    for a in pack.animations:
+        frames = [Frame(mapping[fr["module"]], None, fr["hold"]) for fr in a["frames"]]
+        anim = Animation(new_id(), a["name"], a["fps"], a["loop"], frames)
+        animations[anim.id] = anim
     meta = ProjectMeta(name=pack.name)
-    return ImportResult(meta, instances, floors, reused, created)
+    return ImportResult(meta, instances, floors, reused, created, group_objs, animations)
+
+
+def _build_groups(raw: dict[str, dict]) -> tuple[dict[str, Group], dict[str, str]]:
+    """Groupes du paquet -> groupes de la scène (nouveaux identifiants). Parent inconnu, cycle ou profondeur > 3 :
+    le groupe est mis à la racine (jamais d'échec). Renvoie (groupes, ancien id -> nouvel id)."""
+    new_ids = {gid: new_id() for gid in raw}
+    groups = {new_ids[gid]: Group(new_ids[gid], g["name"], new_ids.get(g["parent"])) for gid, g in raw.items()}
+
+    def depth(gid: str) -> int | None:
+        d, seen = 1, {gid}
+        cur = groups[gid]
+        while cur.parent_id is not None:
+            if cur.parent_id in seen:
+                return None
+            seen.add(cur.parent_id)
+            cur = groups[cur.parent_id]
+            d += 1
+        return d
+
+    for gid in list(groups):
+        d = depth(gid)
+        if d is None or d > MAX_GROUP_DEPTH:
+            groups[gid].parent_id = None
+    return groups, new_ids
+
+
+def _prune(groups: dict[str, Group], used: set[str]) -> dict[str, Group]:
+    keep = set(used)
+    changed = True
+    while changed:
+        changed = False
+        for g in groups.values():
+            if g.id in keep and g.parent_id and g.parent_id not in keep:
+                keep.add(g.parent_id)
+                changed = True
+    return {gid: g for gid, g in groups.items() if gid in keep}
 
 
 # --------------------------------------------------------------------------- modules de départ (paquet bibliothèque)

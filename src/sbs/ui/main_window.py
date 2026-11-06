@@ -368,7 +368,7 @@ class MainWindow(SessionMixin, QMainWindow):
         except (PackError, OSError, UnicodeDecodeError) as exc:
             QMessageBox.critical(self, "Import impossible", str(exc))
             return False
-        self._apply(result.meta, result.instances, None, result.floors)
+        self._apply(result.meta, result.instances, None, result.floors, result.groups, result.animations)
         QMessageBox.information(
             self, "Scène importée",
             f"{len(result.instances)} objet(s) placés.\n{result.reused} module(s) déjà présents, "

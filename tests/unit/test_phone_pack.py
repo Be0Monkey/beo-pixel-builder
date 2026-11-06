@@ -142,3 +142,42 @@ def test_modules_de_depart_fournis_s_importent_sans_doublon(tmp_path):
     assert created2 == 0 and reused2 == 173
     with pytest.raises(P.PackError):
         P.import_library_pack(lib, "{}")
+
+
+def test_etages_calques_groupes_animations_sont_repris(tmp_path):
+    lib = Library(tmp_path / "lib")
+    doc = {
+        "format": P.SCENE_FORMAT, "version": 1, "name": "Ville",
+        "modules": [module("m1"), module("m2", color=(10, 200, 10, 255), name="Arbre")],
+        "instances": [
+            {"module": "m1", "x": 1, "y": 2, "floor": "F1", "layer": "L2", "group": "G2"},
+            {"module": "m2", "x": 5, "y": 6, "floor": "F1", "layer": "L1", "group": "G2"},
+            {"module": "m2", "x": 9, "y": 9, "floor": "inconnu", "layer": "x", "group": "inconnu"},
+        ],
+        "floors": [{"id": "F1", "name": "RDC", "visible": True, "locked": False, "layers": [
+            {"id": "L1", "name": "Sol", "visible": True, "locked": False},
+            {"id": "L2", "name": "Murs", "visible": False, "locked": True}]}],
+        "groups": {"G1": {"name": "Maison", "parent": None}, "G2": {"name": "Mur", "parent": "G1"},
+                   "G3": {"name": "Vide", "parent": None}},
+        "animations": [{"name": "Vent", "fps": 6, "loop": True, "frames": [{"module": "m1", "hold": 2}, {"module": "m2"}]}],
+    }
+    res = P.import_scene_pack(lib, P.parse_scene_pack(json.dumps(doc)))
+    assert [f.name for f in res.floors] == ["RDC"] and [l.name for l in res.floors[0].layers] == ["Sol", "Murs"]
+    assert res.floors[0].layers[1].visible is False and res.floors[0].layers[1].locked is True
+    a, b, c = res.instances
+    assert a.layer_id == res.floors[0].layers[1].id and b.layer_id == res.floors[0].layers[0].id
+    assert c.layer_id == res.floors[0].layers[0].id and c.group_id is None  # référence inconnue : repli, pas d'échec
+    assert a.group_id == b.group_id and res.groups[a.group_id].parent_id in res.groups
+    assert sorted(g.name for g in res.groups.values()) == ["Maison", "Mur"]  # « Vide » n'est pas gardé
+    anim = next(iter(res.animations.values()))
+    assert (anim.name, anim.fps, [f.hold for f in anim.frames]) == ("Vent", 6, [2, 1])
+
+
+def test_groupes_cycle_ou_trop_profonds_sont_mis_a_la_racine(tmp_path):
+    lib = Library(tmp_path / "lib")
+    groups = {"A": {"name": "A", "parent": "B"}, "B": {"name": "B", "parent": "A"}}
+    doc = {"format": P.SCENE_FORMAT, "version": 1, "modules": [module("m1")],
+           "instances": [{"module": "m1", "x": 0, "y": 0, "group": "A"}], "groups": groups}
+    res = P.import_scene_pack(lib, P.parse_scene_pack(json.dumps(doc)))
+    g = res.groups[res.instances[0].group_id]
+    assert g.parent_id is None
