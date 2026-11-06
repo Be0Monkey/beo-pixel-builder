@@ -49,6 +49,30 @@ def cover(origin: Point, length: int, piece: int, horizontal: bool = True, fit: 
     return [(origin[0] + o, origin[1]) if horizontal else (origin[0], origin[1] + o) for o in offsets]
 
 
+def perspective(origin: Point, count: int, step: Point, last_percent: int, levels: int = 6) -> list[tuple[int, int, float]]:
+    """Pièces qui s'éloignent en diagonale : la 1re est à taille normale (100 %), la dernière à `last_percent` %.
+    `step` = avancée entre deux pièces à taille normale ; elle rétrécit avec la taille (pièces toujours jointives).
+    Les tailles sont regroupées en `levels` paliers (2 à 12) pour ne créer que peu de modules.
+    Renvoie [(x, y, échelle)] ; l'échelle vaut exactement 1.0 pour les pièces à taille normale."""
+    count = _int("nombre", count, 1, 10**6)
+    _check_count(count)
+    last_percent = _int("échelle de la dernière pièce (%)", last_percent, 10, 100)
+    levels = _int("niveaux", levels, 2, 12)
+    last = last_percent / 100
+    palette = [1.0 - (1.0 - last) * k / (levels - 1) for k in range(levels)]
+    raw = [1.0 if count == 1 else 1.0 + (last - 1.0) * i / (count - 1) for i in range(count)]
+    out: list[tuple[int, int, float]] = []
+    fx, fy = float(origin[0]), float(origin[1])
+    for i, r in enumerate(raw):
+        q = min(palette, key=lambda v: abs(v - r))
+        out.append((round(fx), round(fy), 1.0 if q >= 0.9999 else round(q, 4)))
+        nxt = raw[i + 1] if i + 1 < count else r
+        mid = (r + nxt) / 2  # l'avancée suit la taille moyenne des deux pièces voisines
+        fx += step[0] * mid
+        fy += step[1] * mid
+    return out
+
+
 def _catmull(p0, p1, p2, p3, t: float) -> tuple[float, float]:
     t2, t3 = t * t, t * t * t
     return tuple(  # type: ignore[return-value]

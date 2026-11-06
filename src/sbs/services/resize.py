@@ -86,3 +86,55 @@ def create_resized(library: Library, asset_uuid: str, mode: str, k: int):
         if new is not None:
             library.delete_asset(new.uuid)
         raise ValueError(str(exc)) from exc
+
+
+def create_scaled(library: Library, asset_uuid: str, factor: float):
+    """Version réduite d'un module (facteur 0,1 à 1) en voisin le plus proche, pour simuler l'éloignement.
+    Réutilise un module identique déjà présent. Renvoie (module, créé?). Lève ValueError."""
+    from sbs.services.batch_import import find_local_by_sha
+    asset = library.get(asset_uuid)
+    if asset is None:
+        raise ValueError("ce module est absent de la bibliothèque")
+    if isinstance(factor, bool) or not isinstance(factor, (int, float)) or not 0.1 <= factor <= 1.0:
+        raise ValueError("l'échelle doit être comprise entre 10 % et 100 %")
+    if factor == 1.0:
+        return asset, False
+    try:
+        src = Image.open(io.BytesIO(library.image_bytes(asset_uuid)))
+        src.load()
+    except (OSError, LibraryError, ValueError) as exc:
+        raise ValueError(f"image du module illisible : {exc}") from exc
+    nw, nh = max(1, round(asset.width * factor)), max(1, round(asset.height * factor))
+    out = src.convert("RGBA").resize((nw, nh), Image.Resampling.NEAREST)
+    buf = io.BytesIO()
+    out.save(buf, "PNG")
+    png = buf.getvalue()
+
+    def scale_pt(p: int, dim: int, new_dim: int) -> int:
+        if p >= dim:
+            return new_dim
+        if p == dim - 1:
+            return new_dim - 1  # le bas / le bord reste le bas / le bord
+        return min(new_dim - 1, round(p * factor))
+    pivot = (scale_pt(asset.pivot_x, asset.width, nw), scale_pt(asset.pivot_y, asset.height, nh))
+    import hashlib
+    existing = find_local_by_sha(library, hashlib.sha256(png).hexdigest())
+    if existing is not None:
+        found = library.get(existing)
+        if found is not None and (found.pivot_x, found.pivot_y) == pivot:
+            return found, False
+    name = f"{asset.name} {round(factor * 100)}%"
+    new = None
+    try:
+        new = library.create_asset(name, png, pivot, asset.category)
+        if asset.anchors:
+            anchors = [Anchor(a.name, scale_pt(a.x, asset.width, nw), scale_pt(a.y, asset.height, nh))
+                       for a in asset.anchors]
+            new = library.update_geometry(new.uuid, pivot, anchors, revision=1)
+        if asset.tags:
+            library.set_tags(new.uuid, asset.tags)
+        return library.get(new.uuid), True
+    except (LibraryError, ValueError) as exc:
+        if new is not None:
+            library.delete_asset(new.uuid)
+        raise ValueError(str(exc)) from exc

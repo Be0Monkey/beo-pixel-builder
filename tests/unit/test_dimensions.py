@@ -105,3 +105,44 @@ def test_limites_et_facteurs_invalides(tmp_path):
     with pytest.raises(ValueError, match="absent"):
         RZ.create_resized(lib, "inconnu", "up", 2)
     assert RZ.label("up", 3) == "×3" and RZ.label("down", 2) == "÷2"
+
+
+# ------------------------------------------------------------------ perspective (mur qui s'éloigne)
+def test_perspective_tailles_decroissantes_et_pieces_jointives():
+    pieces = R.perspective((0, 100), 6, (32, -16), 50, levels=6)
+    scales = [p[2] for p in pieces]
+    assert scales[0] == 1.0 and scales[-1] == 0.5
+    assert scales == sorted(scales, reverse=True)  # jamais plus grand en s'éloignant
+    xs = [p[0] for p in pieces]
+    gaps = [b - a for a, b in zip(xs, xs[1:])]
+    assert gaps == sorted(gaps, reverse=True) and gaps[0] <= 32 and gaps[-1] >= 16  # l'avancée rétrécit aussi
+    assert all(b[1] < a[1] for a, b in zip(pieces, pieces[1:]))  # monte à l'écran : s'éloigne
+
+
+def test_perspective_paliers_limites_et_cas_simples():
+    pieces = R.perspective((0, 0), 40, (10, -5), 25, levels=4)
+    assert len({p[2] for p in pieces}) <= 4  # peu de modules à créer
+    assert R.perspective((5, 5), 1, (10, 10), 50) == [(5, 5, 1.0)]
+    flat = R.perspective((0, 0), 4, (8, 0), 100)
+    assert {p[2] for p in flat} == {1.0} and [p[0] for p in flat] == [0, 8, 16, 24]
+    for bad in ({"last_percent": 5}, {"last_percent": 101}, {"levels": 1}, {"levels": 13}, {"count": 0}):
+        args = dict(origin=(0, 0), count=5, step=(8, -4), last_percent=50, levels=6) | bad
+        with pytest.raises(ValueError):
+            R.perspective(**args)
+
+
+def test_create_scaled_reduit_en_gardant_le_bas_et_reutilise(tmp_path):
+    lib, a, src = make_asset(tmp_path, size=(8, 10), pivot=(4, 9))
+    half, created = RZ.create_scaled(lib, a.uuid, 0.5)
+    assert created and (half.width, half.height) == (4, 5) and half.name == "mur 50%"
+    assert half.pivot_y == 4  # le bas du sprite reste le bas
+    img = Image.open(lib.abs_path(half.image_path)).convert("RGBA")
+    assert {img.getpixel((x, y)) for x in range(4) for y in range(5)} <= {
+        src.getpixel((x, y)) for x in range(8) for y in range(10)}  # aucune couleur inventée
+    again, created2 = RZ.create_scaled(lib, a.uuid, 0.5)
+    assert not created2 and again.uuid == half.uuid and lib.count() == 2  # réutilisé
+    same, c3 = RZ.create_scaled(lib, a.uuid, 1.0)
+    assert same.uuid == a.uuid and not c3
+    for bad in (0.05, 1.5, True, "x"):
+        with pytest.raises(ValueError, match="comprise"):
+            RZ.create_scaled(lib, a.uuid, bad)

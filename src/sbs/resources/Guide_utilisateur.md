@@ -35,6 +35,12 @@ Sprite Builder Studio est un atelier **local** (rien n'est envoyé sur Internet,
 - **Couvrir une longueur** : dans **Répéter…**, choisis « Couvrir une longueur » : indique la largeur (ou hauteur) à
   remplir et la taille d'une pièce (proposée d'après le module). « Tout couvrir » dépasse un peu à la fin,
   « Pièces entières » peut laisser un vide, « Exact » finit pile à la longueur avec un léger chevauchement.
+- **Perspective (mur qui s'éloigne)** : dans **Répéter…**, choisis « Perspective ». Donne le point de départ (le plus
+  proche, à taille normale), le **pas** entre deux pièces (ex. X = 32, Y = −16 pour monter en diagonale vers la droite),
+  le **nombre** de pièces et la **taille de la dernière** (ex. 50 %). Les pièces rétrécissent progressivement et restent
+  jointives ; les tailles sont regroupées en quelques **paliers** (6 par défaut) : un module réduit est créé par palier.
+  Les pixels sont réduits « au plus proche » (aspect pixel art, pas de flou). La pièce la plus proche passe toujours
+  devant. L'aperçu montre les positions à taille normale. Les variantes ne sont pas reprises.
 - **Propriétés du module…** (`F4`) : pivot, ancrages, favoris, mots-clés. Tu peux modifier la source
   (toutes les occurrences changent) ou seulement une copie locale.
 

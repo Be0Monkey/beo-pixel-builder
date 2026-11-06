@@ -97,3 +97,8 @@ Comparer point par point Q17–Q51, puis mettre à jour uniquement les exigences
 - **Remplacer la sélection** : une seule commande annulable (`SwapAssets`), pivot inchangé ; un module source utilisé N fois ne crée qu'UN module redimensionné. Les modules créés restent dans la bibliothèque après annulation.
 - **Couvrir une longueur** (`domain/repeat.cover`, mode du dialogue Répéter) : « over » / « within » / « exact » ; origine = pivot de la première pièce ; la taille de pièce est une valeur saisie (largeur ou hauteur du module proposée).
 - Non fait (hors choix de l'utilisateur) : étirement 9-slice, mise à l'échelle par instance sans créer de module.
+
+## Notes — Perspective (mur qui s'éloigne en diagonale)
+- Mode « Perspective » du dialogue Répéter (`domain/repeat.perspective`, `resize.create_scaled`, `CanvasScene.place_perspective`) : N pièces, la 1re à 100 %, la dernière à X % (10–100), avancée proportionnelle à la taille moyenne des deux pièces voisines (jointives). Tailles regroupées en 2–12 paliers ; un module réduit (voisin le plus proche, facteur non entier) est créé ou réutilisé (même contenu) par palier. Pas de changement du format projet : chaque pièce est une instance d'un module normal.
+- Ordre : si le bout lointain est plus bas à l'écran que le proche, `z_manual` décroissant est posé pour garder la plus proche devant ; sinon l'ordre automatique (par y) suffit.
+- Limites : aperçu en taille normale (positions seulement), variantes et cartes `_n`/`_e` non reprises, réduction non entière → pixels de tailles irrégulières (assumé pour un effet de recul).

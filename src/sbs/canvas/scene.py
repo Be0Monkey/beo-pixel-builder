@@ -368,6 +368,44 @@ class CanvasScene(QGraphicsScene):
         self.history.execute(SwapAssets(changes, f"Redimensionner {RZ.label(mode, k)}"))
         return len(sel), len(created)
 
+    def place_perspective(self, asset_uuid: str, pieces: list[tuple[int, int, float]], group: bool = False) -> str | None:
+        """Pose des pièces de tailles décroissantes (voir domain.repeat.perspective) en une seule action
+        annulable. Les modules réduits sont créés (ou réutilisés) dans la bibliothèque. None si fait, sinon l'erreur."""
+        if self.library.get(asset_uuid) is None:
+            return "Ce module est absent de la bibliothèque."
+        if not pieces:
+            return "Aucune position à placer."
+        if len(pieces) > MAX_COUNT:
+            return f"{MAX_COUNT} objets au maximum."
+        made: dict[float, str] = {}
+        created: list[str] = []
+        try:
+            for f in sorted({p[2] for p in pieces}, reverse=True):
+                asset, new = RZ.create_scaled(self.library, asset_uuid, f)
+                made[f] = asset.uuid
+                if new:
+                    created.append(asset.uuid)
+        except ValueError as exc:
+            for uuid in created:
+                self.library.delete_asset(uuid)
+            return str(exc)
+        self._fix_active_target()
+        gid, groups = None, []
+        if group:
+            gid = new_id()
+            groups = [Group(gid, "Perspective", self.entered_group)]
+        owner = gid if gid else self.entered_group
+        far_is_lower = len(pieces) > 1 and pieces[-1][1] >= pieces[0][1]
+        insts = []
+        for i, (x, y, f) in enumerate(pieces):
+            # si la fin lointaine est plus BAS à l'écran, l'ordre automatique (par y) la mettrait devant : on corrige
+            insts.append(Instance(new_id(), made[f], int(x), int(y), z_manual=(-i if far_is_lower else 0),
+                                  floor_id=self.active_floor_id, layer_id=self.active_layer_id, group_id=owner))
+        self.clear_preview()
+        self.history.execute(PlaceInstancesWithGroups(insts, groups, f"Perspective {len(insts)} pièces"))
+        self.select_ids([i.id for i in insts])
+        return None
+
     def missing_instances(self) -> list[tuple[str, str]]:
         """Objets dont la ressource ou l'image manque : [(id, raison)]."""
         from sbs.services.references import find_missing
