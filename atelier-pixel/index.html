@@ -1447,14 +1447,14 @@ async function importLibrary(file) {
   } catch (e) { toast("Ce fichier n'est pas une bibliothèque valide de Sprite Builder Studio."); }
   prog.hidden = true;
 }
-async function loadStarter() {
+async function loadStarter(auto) {
   try {
     const r = await fetch('modules-depart.json', { cache: 'no-cache' });
     if (!r.ok) throw new Error('http');
     await importLibrary(await r.blob());
-  } catch (e) { toast("Impossible de télécharger les modules de départ. Vérifie la connexion, ou importe un fichier."); }
+  } catch (e) { if (!auto) toast("Impossible de télécharger les modules de départ. Vérifie la connexion, ou importe un fichier."); }
 }
-$('#aStarter').onclick = loadStarter; $('#aStarter2').onclick = loadStarter;
+$('#aStarter').onclick = () => loadStarter(); $('#aStarter2').onclick = () => loadStarter();
 $$('.aLibFile').forEach(inp => inp.onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) importLibrary(f); });
 $('#aPngFile').onchange = async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
@@ -1540,6 +1540,7 @@ $('#bToMod').onclick = async () => {
     if (sc && Array.isArray(sc.inst)) { A.inst = sc.inst.filter(o => o && typeof o.module === 'string' && Number.isInteger(o.x) && Number.isInteger(o.y)).map(o => ({ id: String(o.id || rid()), module: o.module, x: o.x, y: o.y, z: Number.isInteger(o.z) ? o.z : 0 })); A.name = String(sc.name || 'Ma scène'); }
   } catch (e) { storageOk = false; $('#aLibNote').textContent = "Le stockage du navigateur est indisponible : les modules ne peuvent pas être gardés."; }
   $('#aName').value = A.name; renderMods(); updateUI(); setTool('place');
+  if (storageOk && !MODS.length && location.protocol.startsWith('http')) loadStarter(true);
   let m = 'draw'; try { m = localStorage.getItem('atelier-pixel:mode') === 'asm' ? 'asm' : 'draw'; } catch (e) {}
   if (location.hash === '#assembler') m = 'asm';
   setMode(m);

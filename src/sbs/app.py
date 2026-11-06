@@ -15,6 +15,17 @@ def _option(argv: list[str], name: str) -> str | None:
     return None
 
 
+def _install_starter_modules(library) -> None:
+    """Premier lancement : bibliothèque vide -> on y met les modules fournis avec l'application."""
+    from sbs.services.phone_pack import import_library_pack, starter_pack_path
+    try:
+        if library.list_assets():
+            return
+        import_library_pack(library, starter_pack_path().read_text(encoding="utf-8"))
+    except Exception:  # jamais bloquant : l'utilisateur peut toujours importer son propre kit
+        pass
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if "--version" in args:
@@ -36,6 +47,7 @@ def main(argv: list[str] | None = None) -> int:
     app.setApplicationName("Sprite Builder Studio")
     prefs = Preferences(user_data_dir() / "preferences.json")
     library = Library(user_data_dir() / "library")
+    _install_starter_modules(library)
     window = MainWindow(prefs, library)
     window.show()
     window.offer_recovery()  # un arrêt brutal précédent ? proposer de récupérer le travail

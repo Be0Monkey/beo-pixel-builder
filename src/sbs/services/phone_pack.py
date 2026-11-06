@@ -98,6 +98,35 @@ def _text(v: object, what: str, maxlen: int) -> str:
     return v
 
 
+def _parse_module(m: object, n: int) -> "PackModule":
+    """Valide un module d'un paquet (scène ou bibliothèque) ; PackError si un champ est incorrect."""
+    if not isinstance(m, dict):
+        raise PackError(f"paquet invalide : module n°{n} illisible")
+    mid = _text(m.get("id"), "id", 64)
+    w, h = _int(m.get("w"), "w", 1, MAX_SIDE), _int(m.get("h"), "h", 1, MAX_SIDE)
+    # le pivot peut être hors de l'image (ex. sur le bord bas : y = hauteur)
+    px, py = _int(m.get("px"), "px", -MAX_SIDE, 2 * MAX_SIDE), _int(m.get("py"), "py", -MAX_SIDE, 2 * MAX_SIDE)
+    try:
+        png = base64.b64decode(_text(m.get("png"), "png", 4 * MAX_PNG_BYTES), validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise PackError(f"paquet invalide : image illisible (module « {mid} »)") from exc
+    if len(png) > MAX_PNG_BYTES:
+        raise PackError(f"paquet invalide : image trop lourde (module « {mid} »)")
+    try:
+        size = Library._check_png(png)
+    except LibraryError as exc:
+        raise PackError(f"paquet invalide : {exc} (module « {mid} »)") from exc
+    if size != (w, h):
+        raise PackError(f"paquet invalide : la taille annoncée ne correspond pas à l'image (module « {mid} »)")
+    return PackModule(mid, " ".join(str(m.get("name") or mid).split())[:80] or mid,
+                      " ".join(str(m.get("category") or "divers").split())[:40] or "divers", w, h, px, py, png)
+
+
+def _pivot_in_image(m: "PackModule") -> tuple[int, int]:
+    """La bibliothèque exige un pivot dans l'image : un pivot plus loin est ramené au bord (le module n'est pas perdu)."""
+    return min(max(m.px, 0), m.w), min(max(m.py, 0), m.h)
+
+
 def parse_scene_pack(text: str) -> ScenePack:
     try:
         doc = json.loads(text)
@@ -116,29 +145,10 @@ def parse_scene_pack(text: str) -> ScenePack:
     name = str(doc.get("name") or "Scène du téléphone").strip()[:60] or "Scène du téléphone"
     pack = ScenePack(name)
     for n, m in enumerate(raw_modules, 1):
-        if not isinstance(m, dict):
-            raise PackError(f"paquet invalide : module n°{n} illisible")
-        mid = _text(m.get("id"), "id", 64)
-        if mid in pack.modules:
-            raise PackError(f"paquet invalide : module en double ({mid})")
-        w, h = _int(m.get("w"), "w", 1, MAX_SIDE), _int(m.get("h"), "h", 1, MAX_SIDE)
-        # le pivot peut être hors de l'image (ex. sur le bord bas : y = hauteur)
-        px, py = _int(m.get("px"), "px", -MAX_SIDE, 2 * MAX_SIDE), _int(m.get("py"), "py", -MAX_SIDE, 2 * MAX_SIDE)
-        try:
-            png = base64.b64decode(_text(m.get("png"), "png", 4 * MAX_PNG_BYTES), validate=True)
-        except (binascii.Error, ValueError) as exc:
-            raise PackError(f"paquet invalide : image illisible (module « {mid} »)") from exc
-        if len(png) > MAX_PNG_BYTES:
-            raise PackError(f"paquet invalide : image trop lourde (module « {mid} »)")
-        try:
-            size = Library._check_png(png)
-        except LibraryError as exc:
-            raise PackError(f"paquet invalide : {exc} (module « {mid} »)") from exc
-        if size != (w, h):
-            raise PackError(f"paquet invalide : la taille annoncée ne correspond pas à l'image (module « {mid} »)")
-        pack.modules[mid] = PackModule(mid, " ".join(str(m.get("name") or mid).split())[:80] or mid,
-                                       " ".join(str(m.get("category") or "divers").split())[:40] or "divers",
-                                       w, h, px, py, png)
+        mod = _parse_module(m, n)
+        if mod.id in pack.modules:
+            raise PackError(f"paquet invalide : module en double ({mod.id})")
+        pack.modules[mod.id] = mod
     for n, i in enumerate(raw_instances, 1):
         if not isinstance(i, dict):
             raise PackError(f"paquet invalide : objet n°{n} illisible")
@@ -176,7 +186,7 @@ def import_scene_pack(library: Library, pack: ScenePack) -> ImportResult:
             if same is not None:
                 mapping[mid], reused = same, reused + 1
                 continue
-            asset = library.create_asset(m.name, m.png, (m.px, m.py), m.category)
+            asset = library.create_asset(m.name, m.png, _pivot_in_image(m), m.category)
             created_now.append(asset.uuid)
             mapping[mid], created = asset.uuid, created + 1
     except (LibraryError, ValueError, OSError) as exc:
@@ -188,3 +198,39 @@ def import_scene_pack(library: Library, pack: ScenePack) -> ImportResult:
     instances = [Instance(new_id(), mapping[i.module], i.x, i.y, i.z, None, fid, lid, None) for i in pack.instances]
     meta = ProjectMeta(name=pack.name)
     return ImportResult(meta, instances, floors, reused, created)
+
+
+# --------------------------------------------------------------------------- modules de départ (paquet bibliothèque)
+def starter_pack_path() -> Path:
+    """Paquet de modules fourni avec l'application (ressource du paquet Windows)."""
+    return Path(__file__).resolve().parents[1] / "resources" / "modules_depart.sbspack.json"
+
+
+def import_library_pack(library: Library, text: str) -> tuple[int, int]:
+    """Ajoute à la bibliothèque les modules d'un paquet bibliothèque. Renvoie (créés, déjà présents).
+
+    Un module identique (même image) déjà dans la bibliothèque n'est pas dupliqué ; un module invalide
+    est ignoré sans arrêter les autres.
+    """
+    try:
+        doc = json.loads(text)
+    except (ValueError, RecursionError) as exc:
+        raise PackError("ce fichier n'est pas un paquet valide (JSON illisible)") from exc
+    if not isinstance(doc, dict) or doc.get("format") != LIB_FORMAT or doc.get("version") != PACK_VERSION \
+            or not isinstance(doc.get("modules"), list):
+        raise PackError("ce fichier n'est pas un paquet bibliothèque")
+    created = reused = 0
+    for n, raw in enumerate(doc["modules"][:MAX_MODULES], 1):
+        try:
+            m = _parse_module(raw, n)
+            if find_local_by_sha(library, hashlib.sha256(m.png).hexdigest()) is not None:
+                reused += 1
+                continue
+            asset = library.create_asset(m.name, m.png, _pivot_in_image(m), m.category)
+            tags = raw.get("tags")
+            if isinstance(tags, list) and tags:
+                library.set_tags(asset.uuid, [str(t)[:40] for t in tags[:20]])
+            created += 1
+        except (PackError, LibraryError, ValueError, OSError):
+            continue
+    return created, reused

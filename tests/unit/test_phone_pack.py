@@ -131,3 +131,14 @@ def test_pivot_sur_le_bord_bas_hors_image_est_accepte(tmp_path):
     res = P.import_scene_pack(lib, pack)
     a = lib.list_assets()[0]
     assert (a.pivot_x, a.pivot_y) == (0, 34) and len(res.instances) == 1
+
+
+def test_modules_de_depart_fournis_s_importent_sans_doublon(tmp_path):
+    lib = Library(tmp_path / "lib")
+    text = P.starter_pack_path().read_text(encoding="utf-8")
+    created, reused = P.import_library_pack(lib, text)
+    assert created > 100 and created + reused == 173 and len(lib.list_assets()) == created  # 2 images identiques, aucune perdue
+    created2, reused2 = P.import_library_pack(lib, text)  # deuxième fois : rien de dupliqué
+    assert created2 == 0 and reused2 == 173
+    with pytest.raises(P.PackError):
+        P.import_library_pack(lib, "{}")

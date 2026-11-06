@@ -32,7 +32,14 @@ from sbs.services.project_io import (
     load_project,
     save_project,
 )
-from sbs.services.phone_pack import PackError, export_library_pack, import_scene_pack, parse_scene_pack
+from sbs.services.phone_pack import (
+    PackError,
+    export_library_pack,
+    import_library_pack,
+    import_scene_pack,
+    parse_scene_pack,
+    starter_pack_path,
+)
 from sbs.services.preferences import Preferences
 from sbs.ui.floors_panel import FloorsPanel
 from sbs.ui.library_panel import LibraryPanel
@@ -142,6 +149,7 @@ class MainWindow(SessionMixin, QMainWindow):
         file_menu.addAction(QAction("Exporter la bibliothèque pour le &téléphone…", self,
                                     triggered=self.export_phone_library))
         file_menu.addAction(QAction("Importer une scène du téléphone…", self, triggered=self.import_phone_scene))
+        file_menu.addAction(QAction("Ajouter les modules de départ fournis…", self, triggered=self.add_starter_modules))
         file_menu.addSeparator()
         file_menu.addAction(QAction("&Options…", self, shortcut="Ctrl+,", triggered=self.open_options))
         file_menu.addAction(QAction("&Quitter", self, shortcut="Ctrl+Q", triggered=self.close))
@@ -309,6 +317,18 @@ class MainWindow(SessionMixin, QMainWindow):
         self.meta, self.path = meta, path
         self._update_title()
         self._update_status()
+
+    def add_starter_modules(self) -> None:
+        """Ajoute (sans doublon) les modules fournis avec l'application."""
+        try:
+            created, reused = import_library_pack(self.library, starter_pack_path().read_text(encoding="utf-8"))
+        except (PackError, OSError) as exc:
+            QMessageBox.critical(self, "Modules de départ", str(exc))
+            return
+        self.library_panel.reload_categories()
+        self.library_panel.refresh()
+        QMessageBox.information(self, "Modules de départ",
+                                f"{created} module(s) ajouté(s), {reused} déjà présent(s).")
 
     def open_atelier_pixel(self) -> None:
         """L'Atelier Pixel (dessin + assemblage simplifié) est la version web du même projet."""
