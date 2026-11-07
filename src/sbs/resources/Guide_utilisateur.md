@@ -111,4 +111,11 @@ Tu peux assembler une scène sur ton téléphone avec l'édition web de Sprite B
 2. **Sur le téléphone** : choisis un module, touche la scène pour le poser ; outil Sélection pour déplacer, flèches pour ajuster, devant/derrière, dupliquer, supprimer. Les dessins faits dans l'Atelier Pixel s'ajoutent aux modules avec « → Mes modules » (point d'appui en bas au centre, réglable).
 3. **Téléphone → PC** : onglet Scène → « Partager avec le PC » (ou « Enregistrer le fichier »). Sur le PC : menu Fichier, « Importer une scène du téléphone ». Les modules absents sont ajoutés à la bibliothèque, les autres réutilisés ; la scène s'ouvre comme un projet non enregistré.
 
-Limites : le paquet scène ne transporte que les modules et leurs positions (pas de variantes, cartes de normales, groupes ni étages multiples) ; une seule scène est gardée sur le téléphone, dans le navigateur ; vider les données du navigateur efface modules et scène.
+Confort de l'édition web :
+- **Raccourcis clavier (PC)** : Ctrl+D dupliquer, Ctrl+C / Ctrl+V copier-coller (même entre scènes), Ctrl+A tout sélectionner, Ctrl+G grouper (+Maj : dégrouper), Suppr effacer, flèches 1 pixel, Maj+flèches une case de grille.
+- **Aperçu avant de valider** : dans Objet → Répéter, les copies (ou le mur en perspective) s'affichent en transparence sur la scène avant de toucher « Créer ». Les derniers réglages sont retenus.
+- **Favoris et récents** : l'étoile d'un module le met dans « ★ Favoris » ; la rangée « Récents » rappelle les derniers modules posés.
+- **Sauvegarde complète** : onglet Scène → « Sauvegarde complète » crée un seul fichier (modules, scènes, animations, favoris) ; « Restaurer une sauvegarde » le remet sans rien supprimer.
+- **Téléphone** : le bouton « Panneau » replie le panneau pour voir toute la scène ; les boutons sont plus grands au doigt.
+
+Limites : le paquet scène ne transporte que les modules, les positions, les étages, les groupes et les animations (pas de variantes ni de cartes de normales) ; vider les données du navigateur efface modules et scènes, d'où l'intérêt de la sauvegarde complète.

@@ -217,6 +217,29 @@ body:not([data-mode="asm"]) #asm { display: none; }
 }
 
 .btn.del{border-color:var(--danger);color:var(--danger)}
+.mwrap { position: relative; min-width: 0; display: grid; }
+.mwrap .star { position: absolute; top: 2px; right: 2px; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 13px; background: color-mix(in srgb, var(--bg) 80%, transparent); color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer; }
+.mwrap .star[aria-pressed="true"] { color: #e0a800; }
+.mviews { display: flex; gap: 6px; margin-bottom: 8px; }
+.mviews .btn { flex: 1; padding: 5px 4px; font-size: 12.5px; }
+.mrecent { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 8px; padding-bottom: 2px; }
+.mrecent button { flex: none; width: 52px; height: 52px; padding: 2px; border: 1px solid var(--line); border-radius: 6px; background: var(--stage); display: grid; place-items: center; }
+.mrecent button[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.mrecent img { image-rendering: pixelated; max-width: 100%; max-height: 100%; }
+.mrecent .cap { flex: none; align-self: center; font-size: 11px; color: var(--muted); }
+.moblonly { display: none; }
+@media (max-width: 760px) {
+  .moblonly { display: inline-block; }
+  #asm[data-collapsed="1"] { grid-template-rows: auto minmax(0, 1fr) auto; }
+  #asm[data-collapsed="1"] .side .panel { display: none !important; }
+}
+@media (pointer: coarse) {
+  .btn.small, .tab { min-height: 44px; }
+  .btn.small { min-width: 44px; padding: 8px 12px; }
+  #asm select, #asm input[type=number] { min-height: 40px; }
+  .mwrap .star { width: 36px; height: 36px; border-radius: 18px; font-size: 20px; }
+  .mrecent button { width: 56px; height: 56px; }
+}
 </style>
 
 <div id="app">
@@ -327,6 +350,7 @@ body:not([data-mode="asm"]) #asm { display: none; }
       <span class="zlabel" id="aZl">×2</span>
       <button class="btn small" id="aZin" aria-label="Zoom avant">+</button>
       <button class="btn small" id="aFit">Tout voir</button>
+      <button class="btn small moblonly" id="aPanelToggle" aria-pressed="false">Panneau ▾</button>
     </div>
     <div class="stagewrap" id="astage">
       <canvas id="acv" aria-label="Zone d'assemblage"></canvas>
@@ -348,6 +372,8 @@ body:not([data-mode="asm"]) #asm { display: none; }
       </div>
       <div id="amMain">
         <div class="mfilters"><input id="aSearch" type="search" placeholder="Chercher un module" aria-label="Chercher un module"><select id="aCat" aria-label="Catégorie"></select></div>
+        <div class="mviews" id="aViews"><button class="btn small" data-view="all" aria-pressed="true">Tous</button><button class="btn small" data-view="fav" aria-pressed="false">★ Favoris</button><button class="btn small" data-view="recent" aria-pressed="false">Récents</button></div>
+        <div class="mrecent" id="aRecent" hidden></div>
         <div class="mbar" id="aSelMod" hidden></div>
         <div class="mgrid" id="aGridMods"></div>
         <button class="btn moreb" id="aMore" hidden>Voir plus</button>
@@ -374,6 +400,16 @@ body:not([data-mode="asm"]) #asm { display: none; }
           <label class="note" style="margin:0"><input type="checkbox" id="aGodotProj"> inclure un petit projet Godot de test</label>
           <button class="btn" id="aExpJson">JSON structuré (.zip)</button>
         </div>
+      </section>
+      <section><h3>Sauvegarde</h3>
+        <p class="note">Un seul fichier avec tes modules, toutes tes scènes, animations et favoris. À garder en lieu sûr : si le navigateur efface ses données, tu peux tout restaurer.</p>
+        <div class="stack">
+          <button class="btn" id="aBackup">Sauvegarde complète</button>
+          <label class="btn" style="text-align:center">Restaurer une sauvegarde<input type="file" accept=".json,application/json" id="aRestoreFile" hidden></label>
+        </div>
+      </section>
+      <section><h3>Raccourcis clavier (PC)</h3>
+        <p class="note" style="line-height:1.6">Ctrl+Z / Ctrl+Y annuler / rétablir · Ctrl+D dupliquer · Ctrl+C / Ctrl+V copier / coller (même entre scènes) · Ctrl+A tout sélectionner · Ctrl+G grouper (+Maj : dégrouper) · Suppr effacer · flèches déplacer d'1 pixel · Maj+flèches d'une case de grille · P / S / H outils Poser / Sélection / Main · Échap désélectionner</p>
       </section>
       <section><h3>Modules</h3>
         <p class="note" id="aLibNote"></p>
@@ -1229,6 +1265,14 @@ function draw() {
   };
   for (const i of order()) if (shown(A.inst[i])) drawInst(A.inst[i], 1);
   if (A.tool === 'place' && A.mod && A.ghost && modById.has(A.mod)) drawInst({ module: A.mod, x: A.ghost.x, y: A.ghost.y }, .6);
+  if (A.preview && !$('#ap-obj').hidden) {
+    const pv = A.preview;
+    if (pv.pos) for (const [x, y] of pv.pos) drawInst({ module: pv.module, x, y }, .5);
+    if (pv.wall) { ctx.lineWidth = 1; ctx.strokeStyle = css('--accent'); ctx.fillStyle = css('--accent');
+      for (const q of pv.wall) { const X0 = ox + q.x * z, X1 = ox + (q.x + q.width) * z, Y0 = oy + q.y * z, Y1 = oy + (q.y + q.drop) * z;
+        ctx.globalAlpha = .25; ctx.beginPath(); ctx.moveTo(X0, Y0 - pv.h0 * q.sl * z); ctx.lineTo(X1, Y1 - pv.h0 * q.sr * z); ctx.lineTo(X1, Y1); ctx.lineTo(X0, Y0); ctx.closePath(); ctx.fill();
+        ctx.globalAlpha = .9; ctx.stroke(); } ctx.globalAlpha = 1; }
+  }
   if (A.trace.length) {
     ctx.strokeStyle = css('--accent'); ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.beginPath();
     A.trace.forEach((q, i) => { const X = ox + q.x * z, Y = oy + q.y * z; i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); }); ctx.stroke(); ctx.setLineDash([]);
@@ -1359,7 +1403,7 @@ $$('[data-atab]').forEach(t => t.onclick = () => showTab(t.dataset.atab));
 function showTab(n) {
   $$('[data-atab]').forEach(x => x.setAttribute('aria-selected', String(x.dataset.atab === n)));
   ['mods', 'obj', 'lay', 'anim', 'scene'].forEach(k => { $('#ap-' + k).hidden = k !== n; });
-  if (n === 'obj') renderObj(); if (n === 'lay') renderLay(); if (n === 'anim') renderAnim(); else stopAnim(); if (n === 'scene') renderSceneList();
+  if (n === 'obj') renderObj(); if (n === 'lay') renderLay(); if (n === 'anim') renderAnim(); else stopAnim(); redraw(); if (n === 'scene') renderSceneList();
 }
 function updateUI() {
   $('#aUndo').disabled = !undoS.length; $('#aRedo').disabled = !redoS.length;
@@ -1368,15 +1412,36 @@ function updateUI() {
   if (!$('#ap-obj').hidden) renderObj();
   if (!$('#ap-lay').hidden) renderLay();
 }
+let clipboardObjs = null;
+async function copySel() {
+  const os = selObjs(); if (!os.length) return toast('Rien à copier : sélectionne d\'abord un objet.');
+  clipboardObjs = os.map(o => ({ module: o.module, x: o.x, y: o.y, z: o.z }));
+  try { await DB.setKV('clip', clipboardObjs); } catch (e) {} toast(os.length + ' objet(s) copié(s)');
+}
+async function pasteSel() {
+  if (!clipboardObjs) { try { clipboardObjs = await DB.getKV('clip'); } catch (e) {} }
+  const list = (clipboardObjs || []).filter(c => modById.has(c.module)); if (!list.length) return toast('Rien à coller.');
+  if (A.inst.length + list.length > 4000) return toast('Trop d\'objets (4000 maximum).');
+  const d = A.snap > 1 ? A.snap : 8, ids = [];
+  doStruct(() => { for (const c of list) { const o = { id: rid(), module: c.module, x: c.x + d, y: c.y + d, z: c.z || 0, ...curFL(), g: A.ctx || null }; A.inst.push(o); ids.push(o.id); } setSels(ids); });
+  clipboardObjs = list.map(c => ({ ...c, x: c.x + d, y: c.y + d })); toast(list.length + ' objet(s) collé(s)');
+}
+function selectAll() { const ids = A.inst.filter(o => shown(o) && !locked(o)).map(o => o.id); if (!ids.length) return; A.tool !== 'select' && setTool('select'); setSels(ids); }
 window.addEventListener('keydown', e => {
-  if (document.body.dataset.mode !== 'asm' || e.target.matches('input,select,textarea')) return;
-  const k = e.key.toLowerCase();
-  if ((e.ctrlKey || e.metaKey) && k === 'z') { e.shiftKey ? redo() : undo(); e.preventDefault(); }
-  else if ((e.ctrlKey || e.metaKey) && k === 'y') { redo(); e.preventDefault(); }
-  else if (k === 'delete' || k === 'backspace') delSel();
+  if (document.body.dataset.mode !== 'asm' || e.target.matches('input,select,textarea') || !$('.overlay:not([hidden])') === false) return;
+  const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
+  if (mod && k === 'z') { e.shiftKey ? redo() : undo(); e.preventDefault(); }
+  else if (mod && k === 'y') { redo(); e.preventDefault(); }
+  else if (mod && k === 'd') { duplicateSel(); e.preventDefault(); }
+  else if (mod && k === 'g') { e.shiftKey ? ungroupSel() : groupSel(); e.preventDefault(); }
+  else if (mod && k === 'a') { selectAll(); e.preventDefault(); }
+  else if (mod && k === 'c') { copySel(); e.preventDefault(); }
+  else if (mod && k === 'v') { pasteSel(); e.preventDefault(); }
+  else if (mod) return;
+  else if (k === 'delete' || k === 'backspace') { delSel(); e.preventDefault(); }
   else if (k === 'p') setTool('place'); else if (k === 's') setTool('select'); else if (k === 'h') setTool('hand');
-  else if (k === 'escape') { A.mod = null; A.ghost = null; renderMods(); redraw(); }
-  else if (k.startsWith('arrow') && A.sel) { const d = { arrowleft: [-1, 0], arrowright: [1, 0], arrowup: [0, -1], arrowdown: [0, 1] }[k]; nudge(d[0], d[1]); e.preventDefault(); }
+  else if (k === 'escape') { if (A.sels.length) { setSels([]); } else { A.mod = null; A.ghost = null; renderMods(); } redraw(); }
+  else if (k.startsWith('arrow') && A.sels.length) { const d = { arrowleft: [-1, 0], arrowright: [1, 0], arrowup: [0, -1], arrowdown: [0, 1] }[k]; nudge(d[0], d[1], e.shiftKey ? (A.snap > 1 ? A.snap : 8) : 1); e.preventDefault(); }
 });
 
 /* ---------- Panneau « Objet » ---------- */
@@ -1384,7 +1449,7 @@ let nudgeStep = 1;
 function selObj() { return A.sel ? A.inst.find(o => o.id === A.sel) : null; }
 const selObjs = () => A.sels.map(id => A.inst.find(o => o.id === id)).filter(Boolean);
 function doStruct(fn) { const b = snap(); fn(); pruneGroups(); pushUndo(b); }
-function nudge(dx, dy) { const os = selObjs(); if (!os.length) return; doStruct(() => os.forEach(o => { o.x += dx * nudgeStep; o.y += dy * nudgeStep; })); }
+function nudge(dx, dy, mult) { const os = selObjs(); if (!os.length) return; const k = mult ? mult : nudgeStep; doStruct(() => os.forEach(o => { o.x += dx * k; o.y += dy * k; })); }
 function delSel() { const ids = new Set(A.sels); if (!ids.size) return; doStruct(() => { A.inst = A.inst.filter(i => !ids.has(i.id)); setSels([]); }); }
 /* unités de la sélection (un groupe entier compte pour une unité) */
 function selUnits() { const seen = new Map(); for (const o of selObjs()) { const u = unitOf(o); if (u) seen.set(u.k + u.id, u); } return [...seen.values()]; }
@@ -1410,7 +1475,7 @@ function duplicateSel() {
   });
 }
 function renderObj() {
-  const box = $('#ap-obj'), os = selObjs(), o = selObj(); box.innerHTML = '';
+  const box = $('#ap-obj'), os = selObjs(), o = selObj(); box.innerHTML = ''; A.preview = null;
   if (A.ctx) { const eb = document.createElement('button'); eb.className = 'btn'; eb.style.marginBottom = '10px'; eb.textContent = 'Sortir du groupe « ' + (A.groups[A.ctx] ? A.groups[A.ctx].name : '') + ' »'; eb.onclick = () => { A.ctx = A.groups[A.ctx] ? A.groups[A.ctx].parent || null : null; setSels([]); updateUI(); redraw(); }; box.appendChild(eb); }
   if (!o) { box.insertAdjacentHTML('beforeend', '<div class="empty">Aucun objet sélectionné. Avec l\'outil « Sélection », touche un objet de la scène. Pour en choisir plusieurs, active « Multi ».</div>'); return; }
   const m = modById.get(o.module), fl = flOf(o), ly = lyOf(o), g = o.g && A.groups[o.g];
@@ -1557,10 +1622,10 @@ function repeatSection(o, m) {
   const w0 = m ? m.w : 16, h0 = m ? m.h : 16;
   sec.innerHTML = '<h3>Répéter</h3><div class="row"><select id="rpMode" class="btn" aria-label="Mode de répétition" style="flex:1"><option value="grid">Ligne ou grille</option><option value="cover">Couvrir une longueur</option><option value="path">Le long d\'un tracé</option><option value="wall">Mur en perspective</option></select></div><div id="rpBody"></div>';
   const body = $('#rpBody', sec), mode = $('#rpMode', sec);
-  mode.value = repeatMode; mode.onchange = () => { repeatMode = mode.value; if (repeatMode !== 'path' && A.tool === 'trace') setTool('select'); fill(); };
+  mode.value = repeatMode; mode.onchange = () => { rpSuppress = null; repeatMode = mode.value; if (repeatMode !== 'path' && A.tool === 'trace') setTool('select'); fill(); };
   const num = (id, label, val, extra = '') => `<label>${label} <input type="number" id="${id}" value="${val}" style="width:68px" ${extra}></label>`;
   const btn = (txt, fn, cls = '') => { const b = document.createElement('button'); b.className = 'btn ' + cls; b.textContent = txt; b.onclick = () => Promise.resolve(fn()).catch(e => toast(e && e.message ? e.message : 'Action impossible.')); return b; };
-  const copies = list => { if (A.inst.length + list.length > 4000) throw new Error('Trop d\'objets (4000 maximum).'); doStruct(() => { for (const [x, y] of list) A.inst.push({ id: rid(), module: o.module, x, y, z: o.z, f: o.f, l: o.l, g: o.g || null }); }); toast(list.length + ' copie(s) créée(s)'); };
+  const copies = list => { if (A.inst.length + list.length > 4000) throw new Error('Trop d\'objets (4000 maximum).'); rpSuppress = o.id; doStruct(() => { for (const [x, y] of list) A.inst.push({ id: rid(), module: o.module, x, y, z: o.z, f: o.f, l: o.l, g: o.g || null }); }); toast(list.length + ' copie(s) créée(s)'); };
   const V = id => +$('#' + id, body).value;
   function fill() {
     body.innerHTML = ''; const row = html => { const d = document.createElement('div'); d.className = 'row'; d.innerHTML = html; body.appendChild(d); return d; }; const note = t => { const p = document.createElement('p'); p.className = 'note'; p.textContent = t; body.appendChild(p); };
@@ -1582,10 +1647,34 @@ function repeatSection(o, m) {
       note('Remplace cet objet par un mur continu qui s\'éloigne : chaque pièce est une tranche déformée (pixels nets), créée comme nouveau module.');
       body.appendChild(btn('Poser le mur', async () => { if (!m) throw new Error('Module absent.'); await placeWall(o, m, Math.max(1, Math.min(40, V('rpN') | 0)), Math.max(1, V('rpW') | 0), Math.max(-300, Math.min(300, V('rpS') | 0)), Math.max(10, Math.min(100, V('rpP') | 0)), $('#rpG', body).checked); }));
     }
+    restorePrefs(); updatePreview();
   }
+  const SAVE = ['rpC', 'rpL', 'rpY', 'rpLen', 'rpDir', 'rpFit', 'rpSm', 'rpBy', 'rpN', 'rpS', 'rpP', 'rpG'];
+  const readPrefs = () => { try { return JSON.parse(localStorage.getItem('sbs-rp') || '{}'); } catch (e) { return {}; } };
+  function restorePrefs() {
+    const pr = readPrefs();
+    for (const id of SAVE) { const el = $('#' + id, body); if (!el || !(id in pr)) continue; if (el.type === 'checkbox') el.checked = !!pr[id]; else el.value = pr[id]; }
+    const dir = $('#rpDir', body); if (dir && dir.value === 'v') $('#rpPc', body).value = h0;
+  }
+  function updatePreview() {
+    let pv = null;
+    try {
+      const q = id => $('#' + id, body) && +$('#' + id, body).value;
+      if (rpSuppress !== o.id) {
+        if (repeatMode === 'grid') { const c = Math.max(1, Math.min(40, q('rpC') | 0)), l = Math.max(1, Math.min(40, q('rpL') | 0)), dx = q('rpX') | 0, dy = q('rpY') | 0, pos = []; for (let j = 0; j < l; j++) for (let i = 0; i < c; i++) if (i || j) pos.push([o.x + i * dx, o.y + j * dy]); pv = { module: o.module, pos };
+        } else if (repeatMode === 'cover') { const horiz = $('#rpDir', body).value === 'h', offs = coverOffsets(Math.max(1, q('rpLen') | 0), Math.max(1, q('rpPc') | 0), $('#rpFit', body).value).slice(1); pv = { module: o.module, pos: offs.map(d => horiz ? [o.x + d, o.y] : [o.x, o.y + d]) };
+        } else if (repeatMode === 'path') { if (A.trace.length >= 2) { const by = $('#rpBy', body).value, v = Math.max(1, q('rpV') | 0); pv = { module: o.module, pos: pathPositions(A.trace, $('#rpSm', body).checked, by === 'sp' ? v : null, by === 'n' ? v : null).filter(([x, y]) => x !== o.x || y !== o.y) }; }
+        } else pv = { wall: perspectiveWall(o.x, o.y, Math.max(1, Math.min(40, q('rpN') | 0)), Math.max(1, q('rpW') | 0), Math.max(-300, Math.min(300, q('rpS') | 0)), Math.max(10, Math.min(100, q('rpP') | 0))), h0 };
+        if (pv && pv.pos && pv.pos.length > 400) pv.pos.length = 400;
+      }
+    } catch (e) { pv = null; }
+    A.preview = pv; redraw();
+  }
+  const onEdit = ev => { rpSuppress = null; const id = ev.target && ev.target.id; if (SAVE.includes(id)) { const pr = readPrefs(); pr[id] = ev.target.type === 'checkbox' ? ev.target.checked : ev.target.value; try { localStorage.setItem('sbs-rp', JSON.stringify(pr)); } catch (e) {} } updatePreview(); };
+  body.addEventListener('input', onEdit); body.addEventListener('change', onEdit);
   fill(); return sec;
 }
-let repeatMode = 'grid';
+let repeatMode = 'grid', rpSuppress = null;
 async function resizeSel(k) {
   const o = selObj(), m = o && modById.get(o.module), blob = m && await DB.image(m.id); if (!m || !blob) return;
   const f = k > 0 ? k : 1 / -k, nw = Math.round(m.w * f), nh = Math.round(m.h * f);
@@ -1611,9 +1700,19 @@ function renderCats() {
   [...cats.keys()].sort().forEach(c => { const op = document.createElement('option'); op.value = c; op.textContent = `${c} (${cats.get(c)})`; sel.appendChild(op); });
   if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
 }
+let FAVS = new Set(), RECENT = [], modView = 'all', prefsLoaded = false;
+async function loadPrefs() {
+  if (prefsLoaded || !DB.db) return; prefsLoaded = true;
+  try { const f = await DB.getKV('favs'), r = await DB.getKV('recent'); FAVS = new Set(Array.isArray(f) ? f.filter(x => typeof x === 'string') : []); RECENT = Array.isArray(r) ? r.filter(x => typeof x === 'string').slice(0, 12) : []; } catch (e) {}
+}
+const savePrefs = () => { try { DB.setKV('favs', [...FAVS]); DB.setKV('recent', RECENT); } catch (e) {} };
+function toggleFav(id) { FAVS.has(id) ? FAVS.delete(id) : FAVS.add(id); savePrefs(); renderMods(); }
+function pushRecent(id) { RECENT = [id, ...RECENT.filter(x => x !== id)].slice(0, 12); savePrefs(); }
+$$('#aViews [data-view]').forEach(b => b.onclick = () => { modView = b.dataset.view; $$('#aViews [data-view]').forEach(x => x.setAttribute('aria-pressed', String(x === b))); page = 1; renderMods(); });
 function filtered() {
   const q = $('#aSearch').value.trim().toLowerCase(), c = $('#aCat').value;
-  return MODS.filter(m => (!c || m.category === c) && (!q || m.name.toLowerCase().includes(q) || (m.tags || []).some(t => t.toLowerCase().includes(q))))
+  if (modView === 'recent') return RECENT.map(id => modById.get(id)).filter(m => m && (!c || m.category === c) && (!q || m.name.toLowerCase().includes(q)));
+  return MODS.filter(m => (modView !== 'fav' || FAVS.has(m.id)) && (!c || m.category === c) && (!q || m.name.toLowerCase().includes(q) || (m.tags || []).some(t => t.toLowerCase().includes(q))))
     .sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
 }
 async function renderMods() {
@@ -1622,12 +1721,21 @@ async function renderMods() {
   const grid = $('#aGridMods'); grid.innerHTML = '';
   const list = filtered(), shown = list.slice(0, page * PAGE);
   for (const m of shown) {
+    const wrap = document.createElement('div'); wrap.className = 'mwrap';
     const b = document.createElement('button'); b.className = 'mcard'; b.setAttribute('aria-pressed', String(A.mod === m.id)); b.title = m.name;
     const th = document.createElement('div'); th.className = 'th'; const im = document.createElement('img'); im.alt = ''; th.appendChild(im);
     const sp = document.createElement('span'); sp.textContent = m.name; b.append(th, sp);
-    b.onclick = () => chooseMod(m.id); grid.appendChild(b);
+    b.onclick = () => chooseMod(m.id);
+    const st = document.createElement('button'); st.className = 'star'; st.textContent = FAVS.has(m.id) ? '★' : '☆'; st.setAttribute('aria-pressed', String(FAVS.has(m.id))); st.setAttribute('aria-label', FAVS.has(m.id) ? 'Retirer des favoris' : 'Ajouter aux favoris'); st.onclick = ev => { ev.stopPropagation(); toggleFav(m.id); };
+    wrap.append(b, st); grid.appendChild(wrap);
     DB.image(m.id).then(blob => { if (blob) { const u = URL.createObjectURL(blob); urls.push(u); im.src = u; } }).catch(() => {});
   }
+  const rc = $('#aRecent'); rc.innerHTML = ''; const rl = RECENT.map(id => modById.get(id)).filter(Boolean).slice(0, 8);
+  rc.hidden = !(modView === 'all' && rl.length && !$('#aSearch').value.trim());
+  if (!rc.hidden) { const cap = document.createElement('span'); cap.className = 'cap'; cap.textContent = 'Récents'; rc.appendChild(cap);
+    for (const m of rl) { const rb = document.createElement('button'); rb.title = m.name; rb.setAttribute('aria-label', m.name); rb.setAttribute('aria-pressed', String(A.mod === m.id)); const ri = document.createElement('img'); ri.alt = ''; rb.appendChild(ri); rb.onclick = () => chooseMod(m.id); rc.appendChild(rb);
+      DB.image(m.id).then(blob => { if (blob) { const u = URL.createObjectURL(blob); urls.push(u); ri.src = u; } }).catch(() => {}); } }
+  if (!list.length && (modView !== 'all')) { const e = document.createElement('p'); e.className = 'note'; e.style.gridColumn = '1/-1'; e.textContent = modView === 'fav' ? 'Aucun favori : touche l\'étoile d\'un module pour le retrouver ici.' : 'Aucun module utilisé récemment.'; grid.appendChild(e); }
   $('#aMore').hidden = list.length <= shown.length; $('#aMore').textContent = `Voir plus (${list.length - shown.length} restants)`;
   renderSelMod();
 }
@@ -1636,10 +1744,11 @@ function renderSelMod() {
   box.hidden = !m; box.innerHTML = ''; if (!m) return;
   const b = document.createElement('b'); b.textContent = m.name; const info = document.createElement('span'); info.textContent = `${m.w}×${m.h}, pied en (${m.px}, ${m.py})`;
   const pv = document.createElement('button'); pv.className = 'btn small'; pv.textContent = 'Régler le point d\'appui'; pv.onclick = () => openPivot(m.id);
+  const fv = document.createElement('button'); fv.className = 'btn small'; fv.textContent = FAVS.has(m.id) ? '★ Favori' : '☆ Favori'; fv.onclick = () => toggleFav(m.id);
   const rm = document.createElement('button'); rm.className = 'btn small'; rm.textContent = 'Arrêter de poser'; rm.onclick = () => { A.mod = null; A.ghost = null; renderMods(); updateHint(); redraw(); };
-  box.append(b, info, pv, rm);
+  box.append(b, info, fv, pv, rm);
 }
-function chooseMod(id) { A.mod = id; setTool('place'); renderMods(); bitmapOf(id); }
+function chooseMod(id) { A.mod = id; pushRecent(id); setTool('place'); renderMods(); bitmapOf(id); }
 $('#aSearch').oninput = () => { page = 1; renderMods(); };
 $('#aCat').onchange = () => { page = 1; renderMods(); };
 $('#aMore').onclick = () => { page++; renderMods(); };
@@ -1728,7 +1837,7 @@ $('#aPngFile').onchange = async e => {
     toast('Module ajouté');
   } catch (er) { toast('Impossible de lire cette image.'); }
 };
-async function reloadMods() { MODS = await DB.allMeta(); modById.clear(); MODS.forEach(m => modById.set(m.id, m)); page = 1; renderCats(); renderMods(); updateUI(); redraw(); }
+async function reloadMods() { await loadPrefs(); MODS = await DB.allMeta(); modById.clear(); MODS.forEach(m => modById.set(m.id, m)); page = 1; renderCats(); renderMods(); updateUI(); redraw(); }
 async function addModule(meta, blob) {
   if (!storageOk) throw new Error('stockage');
   const old = modById.get(meta.id);
@@ -1790,6 +1899,46 @@ async function renderSceneList() {
   }
 }
 $('#aNew').onclick = newScene;
+/* ---------- Sauvegarde complète / restauration ---------- */
+async function backupAll() {
+  await flushScene();
+  const modules = [], ids = [];
+  for (const m of MODS) { const bl = await DB.image(m.id); if (!bl) continue; modules.push({ id: m.id, name: m.name, category: m.category, w: m.w, h: m.h, px: m.px, py: m.py, tags: m.tags || [], png: await blobB64(bl) }); }
+  const idx = (await DB.getKV('scenes')) || [], scenes = [];
+  for (const it of idx) { const d = await DB.getKV('scene:' + it.id); if (d) scenes.push(d); }
+  const doc = { format: 'sbs-backup', version: 1, date: new Date().toISOString(), modules, scenes, favs: [...FAVS], recent: RECENT, current: A.id };
+  const d = new Date(), pad = n => String(n).padStart(2, '0');
+  await U().saveBlob(new Blob([JSON.stringify(doc)], { type: 'application/json' }), 'sauvegarde-sbs-' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '.json');
+  toast('Sauvegarde enregistrée : ' + modules.length + ' modules, ' + scenes.length + ' scène(s)');
+}
+async function restoreAll(file) {
+  let d; try { d = JSON.parse(await file.text()); } catch (e) { return toast('Fichier illisible.'); }
+  if (!d || d.format !== 'sbs-backup' || d.version !== 1 || !Array.isArray(d.modules) || !Array.isArray(d.scenes)) return toast('Ce n\'est pas une sauvegarde Sprite Builder Studio.');
+  if (!(await confirmBox('Restaurer la sauvegarde', d.modules.length + ' modules et ' + d.scenes.length + ' scène(s) seront ajoutés ou mis à jour. Rien n\'est supprimé.', 'Restaurer'))) return;
+  let nm = 0, ns = 0;
+  for (let i = 0; i < d.modules.length; i += 40) {
+    const batch = [];
+    for (const m of d.modules.slice(i, i + 40)) { if (!checkModule(m)) continue; try { batch.push([{ id: m.id, name: String(m.name || m.id).slice(0, 80), category: String(m.category || 'divers').slice(0, 40), w: m.w, h: m.h, px: m.px, py: m.py, tags: Array.isArray(m.tags) ? m.tags.slice(0, 20).map(t => String(t).slice(0, 40)) : [] }, b64ToBlob(m.png)]); } catch (e) {} }
+    if (batch.length) { await DB.putMany(batch); nm += batch.length; }
+  }
+  let idx = (await DB.getKV('scenes')) || [];
+  for (const sc of d.scenes.slice(0, 60)) { if (!sc || typeof sc.id !== 'string' || !Array.isArray(sc.inst)) continue; await DB.setKV('scene:' + sc.id, sc); idx = idx.filter(x => x.id !== sc.id); idx.push({ id: sc.id, name: String(sc.name || 'Scène').slice(0, 60), n: sc.inst.length, ts: Date.now() }); ns++; }
+  await DB.setKV('scenes', idx.slice(0, 60));
+  if (Array.isArray(d.favs)) { d.favs.forEach(x => typeof x === 'string' && FAVS.add(x)); savePrefs(); }
+  await reloadMods();
+  if (typeof d.current === 'string' && d.scenes.some(sc => sc && sc.id === d.current)) { const cur = await DB.getKV('scene:' + d.current); if (cur) { loadSceneDoc(cur); changed(); } }
+  renderSceneList(); toast('Restauré : ' + nm + ' modules, ' + ns + ' scène(s)');
+}
+$('#aBackup').onclick = () => backupAll().catch(() => toast('Sauvegarde impossible.'));
+$('#aRestoreFile').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) restoreAll(f).catch(() => toast('Restauration impossible.')); };
+/* ---------- Panneau repliable (téléphone) ---------- */
+(function () {
+  const asm = $('#asm'), b = $('#aPanelToggle'); if (!b) return;
+  const set = c => { asm.dataset.collapsed = c ? '1' : ''; b.textContent = c ? 'Panneau ▴' : 'Panneau ▾'; b.setAttribute('aria-pressed', String(c)); setTimeout(redraw, 30); };
+  b.onclick = () => set(asm.dataset.collapsed !== '1');
+  $$('[data-atab]').forEach(t => t.addEventListener('click', () => { if (asm.dataset.collapsed === '1') set(false); }));
+})();
+try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
 async function blobB64(blob) { const buf = new Uint8Array(await blob.arrayBuffer()); let s = ''; for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000)); return btoa(s); }
 async function buildPack() {
   const used = [...new Set([...A.inst.map(o => o.module), ...A.anims.flatMap(a => a.frames.map(f => f.module))])], modules = [];
