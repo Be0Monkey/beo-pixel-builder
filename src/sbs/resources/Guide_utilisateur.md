@@ -119,6 +119,7 @@ Confort de l'édition web :
 - **Versions** : onglet Scène → « Versions de cette scène ». Une photo de la scène est prise toutes les 10 minutes de travail (20 gardées) ou à la demande ; « Restaurer » revient en arrière en gardant l'état actuel comme version.
 - **Masquer un module** : le bouton ⊘ d'une vignette (ou « Masquer » dans la barre du module choisi) le retire de la liste sans le supprimer ; il reste dans tes scènes. L'onglet « Masqués » permet de le démasquer (↺).
 - **Modifier un module avec Dessiner** : « Modifier avec Dessiner » (barre du module choisi, ou onglet Objet) ouvre l'image dans Dessiner (128×128 maximum). Puis « Mettre à jour le module » remplace l'image partout où elle est posée ; « → Mes modules » en crée au contraire une copie. Le point d'appui est conservé.
+- **Palette de Dessiner** : trois palettes au choix (elfvsorc, couleurs du kit tirées des modules, base du PC), une rangée « Récentes », la saisie d'un code (#rrggbb) et « Retirer des couleurs » pour nettoyer « Mes couleurs ».
 - **Téléphone** : le bouton « Panneau » replie le panneau pour voir toute la scène ; les boutons sont plus grands au doigt.
 
 Limites : le paquet scène ne transporte que les modules, les positions, les étages, les groupes et les animations (pas de variantes ni de cartes de normales) ; vider les données du navigateur efface modules et scènes, d'où l'intérêt de la sauvegarde complète.

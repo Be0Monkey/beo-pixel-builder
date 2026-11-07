@@ -300,9 +300,13 @@ body:not([data-mode="asm"]) #asm { display: none; }
       <button class="tab" role="tab" data-tab="saved" aria-selected="false">Mes sprites</button>
     </div>
     <div class="panel" id="p-colors">
-      <div class="cur"><div class="curchip" id="curChip"></div><div><code id="curHex">#c8404a</code><div class="note" style="margin:2px 0 0">Couleur du crayon</div></div></div>
-      <section><h3>Palette elfvsorc</h3><div class="pal" id="pal"></div></section>
-      <section><h3>Mes couleurs</h3><div class="custom" id="custom"><label class="addc" title="Ajouter une couleur">+<input type="color" id="cpick" value="#c8404a"></label></div></section>
+      <div class="cur"><div class="curchip" id="curChip"></div><div><code id="curHex">#c8404a</code><div class="note" style="margin:2px 0 0">Couleur du crayon</div></div><input id="hexIn" type="text" maxlength="7" placeholder="#rrggbb" aria-label="Code couleur" autocomplete="off" spellcheck="false" style="margin-left:auto;width:84px;padding:6px;border:1px solid var(--line);border-radius:6px;background:var(--bg);font-family:var(--font-mono,monospace)"></div>
+      <section><h3>Palette</h3>
+        <select id="palSet" aria-label="Choisir la palette" class="btn" style="width:100%;margin-bottom:8px"><option value="elf">elfvsorc (48 couleurs)</option><option value="kit">Couleurs du kit (tirées des modules)</option><option value="base">Base du PC (16 couleurs)</option></select>
+        <div class="pal" id="pal"></div><p class="note" id="palNote" style="margin:6px 0 0"></p></section>
+      <section><h3>Récentes</h3><div class="custom" id="recentCols"><span class="note" style="margin:0">Les couleurs que tu utilises apparaissent ici.</span></div></section>
+      <section><h3>Mes couleurs</h3><div class="custom" id="custom"><label class="addc" title="Ajouter une couleur">+<input type="color" id="cpick" value="#c8404a"></label></div>
+        <div class="row" style="margin-top:8px"><button class="btn small" id="cRemove" aria-pressed="false">Retirer des couleurs</button></div></section>
     </div>
     <div class="panel" id="p-layers" hidden>
       <p class="note">Les calques s'empilent : le premier de la liste est devant. Dessine le contour, les couleurs et les ombres chacun sur son calque.</p>
@@ -703,7 +707,7 @@ function beginStroke(e) {
   const penEraser = e.pointerType === 'pen' && (e.buttons & 32);
   const t = penEraser ? 'eraser' : tool;
   if (t === 'picker') {
-    if (p.x >= 0 && p.y >= 0 && p.x < S.w && p.y < S.h) { const v = u32[p.y * S.w + p.x]; if (v >>> 24) setColor(v); }
+    if (p.x >= 0 && p.y >= 0 && p.x < S.w && p.y < S.h) { const v = u32[p.y * S.w + p.x]; if (v >>> 24) setColor(v, true); }
     setTool(prevTool === 'picker' ? 'pencil' : prevTool); return;
   }
   if (!S.layers[S.act].vis) { toast("Ce calque est masqué : touche l'œil pour l'afficher."); return; }
@@ -808,8 +812,9 @@ function setTool(t) {
   if (t !== 'select') sel = null;
   updateSelUI(); redraw();
 }
-function setColor(v) {
-  color = v; const h = packToHex(v);
+function setColor(v, track) {
+  color = v; const h = packToHex(v); if (track) pushRecentCol(h);
+  const hi = $('#hexIn'); if (hi && document.activeElement !== hi) hi.value = h;
   $('#curChip').style.background = h; $('#curHex').textContent = h; $('#cpick').value = h;
   $$('.sw').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.c === h)));
   if (tool === 'eraser' || tool === 'picker') setTool('pencil');
@@ -820,20 +825,51 @@ TOOLS.forEach(([id, label, key]) => {
   b.innerHTML = iconSvg(id) + `<span>${label}</span>`; b.onclick = () => setTool(id); toolsEl.appendChild(b);
 });
 const palEl = $('#pal');
-PAL.forEach(h => {
-  const b = document.createElement('button'); b.className = 'sw'; b.dataset.c = h; b.style.background = h; b.title = h; b.setAttribute('aria-label', 'Couleur ' + h); b.setAttribute('aria-pressed', 'false');
-  b.onclick = () => setColor(hexToPack(h)); palEl.appendChild(b);
-});
+const BASE16 = ['#000000', '#ffffff', '#9d9d9d', '#5a3c28', '#be2633', '#e06f8b', '#eb8931', '#f7e26b', '#a46422', '#44891a', '#a3ce27', '#005784', '#31a2f2', '#b2dcef', '#2f484e', '#8846a0'];
+let kitCols = null, palSet = 'elf';
+try { const ps = localStorage.getItem('atelier-pixel:palset'); if (['elf', 'kit', 'base'].includes(ps)) palSet = ps; } catch (e) {}
+const lumOf = h => { const n = parseInt(h.slice(1), 16); return .3 * (n >> 16) + .59 * ((n >> 8) & 255) + .11 * (n & 255); };
+function renderPal() {
+  palEl.innerHTML = ''; const list = palSet === 'kit' ? (kitCols || []) : palSet === 'base' ? BASE16 : PAL;
+  list.forEach(h => {
+    const b = document.createElement('button'); b.className = 'sw'; b.dataset.c = h; b.style.background = h; b.title = h; b.setAttribute('aria-label', 'Couleur ' + h); b.setAttribute('aria-pressed', String(packToHex(color) === h));
+    b.onclick = () => setColor(hexToPack(h), true); palEl.appendChild(b);
+  });
+  $('#palNote').textContent = palSet === 'kit' ? (kitCols ? (kitCols.length ? kitCols.length + ' couleurs les plus utilisées dans tes modules, classées de la plus sombre à la plus claire.' : 'Aucun module chargé : charge les modules de départ (onglet Assembler).') : 'Calcul en cours…') : '';
+}
+async function loadKit() {
+  if (kitCols) return renderPal();
+  renderPal();
+  try { kitCols = (window.ASM && window.ASM.kitColors) ? await window.ASM.kitColors() : []; } catch (e) { kitCols = []; }
+  renderPal();
+}
+$('#palSet').value = palSet;
+$('#palSet').onchange = e => { palSet = e.target.value; try { localStorage.setItem('atelier-pixel:palset', palSet); } catch (er) {} palSet === 'kit' ? loadKit() : renderPal(); };
+renderPal(); if (palSet === 'kit') setTimeout(loadKit, 1500);
+let recentCols = [];
+try { recentCols = JSON.parse(localStorage.getItem('atelier-pixel:recentcols') || '[]').filter(h => /^#[0-9a-f]{6}$/i.test(h)).slice(0, 12); } catch (e) {}
+function renderRecent() {
+  const box = $('#recentCols'); box.innerHTML = '';
+  if (!recentCols.length) { box.innerHTML = '<span class="note" style="margin:0">Les couleurs que tu utilises apparaissent ici.</span>'; return; }
+  recentCols.forEach(h => { const b = document.createElement('button'); b.className = 'sw'; b.dataset.c = h; b.style.background = h; b.title = h; b.setAttribute('aria-label', 'Couleur ' + h); b.setAttribute('aria-pressed', String(packToHex(color) === h)); b.onclick = () => setColor(hexToPack(h)); box.appendChild(b); });
+}
+function pushRecentCol(h) { h = h.toLowerCase(); recentCols = [h, ...recentCols.filter(x => x !== h)].slice(0, 12); try { localStorage.setItem('atelier-pixel:recentcols', JSON.stringify(recentCols)); } catch (e) {} renderRecent(); }
+renderRecent();
+let removeMode = false;
+$('#cRemove').onclick = () => { removeMode = !removeMode; $('#cRemove').setAttribute('aria-pressed', String(removeMode)); $('#cRemove').textContent = removeMode ? 'Touche une couleur pour la retirer' : 'Retirer des couleurs'; };
+$('#hexIn').addEventListener('input', e => { let v = e.target.value.trim().toLowerCase(); if (v && v[0] !== '#') v = '#' + v; if (/^#[0-9a-f]{6}$/.test(v)) setColor(hexToPack(v), true); else if (/^#[0-9a-f]{3}$/.test(v)) setColor(hexToPack('#' + [...v.slice(1)].map(c => c + c).join('')), true); });
+$('#hexIn').addEventListener('blur', e => { e.target.value = packToHex(color); });
 let customCols = [];
 try { customCols = JSON.parse(localStorage.getItem('atelier-pixel:custom') || '[]').filter(h => /^#[0-9a-f]{6}$/i.test(h)); } catch (e) {}
 function renderCustom() {
   $$('#custom .sw').forEach(n => n.remove());
   customCols.forEach(h => {
     const b = document.createElement('button'); b.className = 'sw'; b.dataset.c = h; b.style.background = h; b.title = h; b.setAttribute('aria-label', 'Couleur ' + h);
-    b.setAttribute('aria-pressed', String(packToHex(color) === h)); b.onclick = () => setColor(hexToPack(h)); $('#custom').insertBefore(b, $('#custom .addc'));
+    b.setAttribute('aria-pressed', String(packToHex(color) === h)); b.onclick = () => { if (removeMode) { customCols = customCols.filter(x => x !== h); try { localStorage.setItem('atelier-pixel:custom', JSON.stringify(customCols)); } catch (er) {} renderCustom(); } else setColor(hexToPack(h), true); }; $('#custom').insertBefore(b, $('#custom .addc'));
   });
 }
 $('#cpick').addEventListener('input', e => setColor(hexToPack(e.target.value)));
+$('#cpick').addEventListener('change', e => pushRecentCol(e.target.value));
 $('#cpick').addEventListener('change', e => {
   const h = e.target.value.toLowerCase();
   if (!PAL.includes(h) && !customCols.includes(h)) {
@@ -2209,6 +2245,23 @@ $('#bToMod').onclick = async () => {
   } catch (e) { toast("Impossible d'ajouter ce sprite aux modules."); }
 };
 
+/* ---------- Couleurs du kit : les plus utilisées dans les modules ---------- */
+async function kitColors() {
+  const sig = MODS.length + ':' + MODS.reduce((a, m) => a + m.w * m.h, 0);
+  try { const c = await DB.getKV('kitpal'); if (c && c.sig === sig && Array.isArray(c.cols)) return c.cols; } catch (e) {}
+  const cnt = new Map(), cv = document.createElement('canvas'), cx = cv.getContext('2d', { willReadFrequently: true });
+  for (const m of MODS.slice(0, 600)) {
+    const bl = await DB.image(m.id).catch(() => null); if (!bl || m.w > 256 || m.h > 256) continue;
+    const bm = await createImageBitmap(bl); cv.width = bm.width; cv.height = bm.height; cx.clearRect(0, 0, cv.width, cv.height); cx.drawImage(bm, 0, 0);
+    const d = cx.getImageData(0, 0, cv.width, cv.height).data;
+    for (let i = 0; i < d.length; i += 4) { if (d[i + 3] < 250) continue; const k = (d[i] << 16) | (d[i + 1] << 8) | d[i + 2]; cnt.set(k, (cnt.get(k) || 0) + 1); }
+  }
+  const hex = k => '#' + k.toString(16).padStart(6, '0'), lum = k => .3 * (k >> 16) + .59 * ((k >> 8) & 255) + .11 * (k & 255);
+  const cols = [...cnt.entries()].sort((a, b) => b[1] - a[1]).slice(0, 48).map(e => e[0]).sort((a, b) => lum(a) - lum(b)).map(hex);
+  try { await DB.setKV('kitpal', { sig, cols }); } catch (e) {}
+  return cols;
+}
+
 /* ---------- Modifier un module avec Dessiner ---------- */
 let editingMod = null;
 function updateEditBar() {
@@ -2256,7 +2309,7 @@ $('#bOpen').addEventListener('click', () => { if (editingMod) { editingMod = nul
   let m = 'draw'; try { m = localStorage.getItem('atelier-pixel:mode') === 'asm' ? 'asm' : 'draw'; } catch (e) {}
   if (location.hash === '#assembler') m = 'asm';
   setMode(m);
-  window.ASM = { addModule, setMode, get ready() { return true; }, state: A, hit, reloadMods, importLibrary };
+  window.ASM = { kitColors, addModule, setMode, get ready() { return true; }, state: A, hit, reloadMods, importLibrary };
 })();
 })();
 
