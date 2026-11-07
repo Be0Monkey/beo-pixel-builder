@@ -401,6 +401,11 @@ body:not([data-mode="asm"]) #asm { display: none; }
           <button class="btn" id="aExpJson">JSON structuré (.zip)</button>
         </div>
       </section>
+      <section><h3>Versions de cette scène</h3>
+        <p class="note">Une version est une photo de la scène à un instant donné. Une est prise automatiquement toutes les 10 minutes de travail ; tu peux aussi en prendre une à la main avant un gros changement.</p>
+        <div class="stack"><button class="btn" id="aVerNow">Enregistrer une version maintenant</button></div>
+        <div id="aVers" style="margin-top:8px"></div>
+      </section>
       <section><h3>Sauvegarde</h3>
         <p class="note">Un seul fichier avec tes modules, toutes tes scènes, animations et favoris. À garder en lieu sûr : si le navigateur efface ses données, tu peux tout restaurer.</p>
         <div class="stack">
@@ -1403,7 +1408,7 @@ $$('[data-atab]').forEach(t => t.onclick = () => showTab(t.dataset.atab));
 function showTab(n) {
   $$('[data-atab]').forEach(x => x.setAttribute('aria-selected', String(x.dataset.atab === n)));
   ['mods', 'obj', 'lay', 'anim', 'scene'].forEach(k => { $('#ap-' + k).hidden = k !== n; });
-  if (n === 'obj') renderObj(); if (n === 'lay') renderLay(); if (n === 'anim') renderAnim(); else stopAnim(); redraw(); if (n === 'scene') renderSceneList();
+  if (n === 'obj') renderObj(); if (n === 'scene') renderVersions(); if (n === 'lay') renderLay(); if (n === 'anim') renderAnim(); else stopAnim(); redraw(); if (n === 'scene') renderSceneList();
 }
 function updateUI() {
   $('#aUndo').disabled = !undoS.length; $('#aRedo').disabled = !redoS.length;
@@ -1855,7 +1860,43 @@ const flushScene = () => {
     await DB.setKV('scenes', idx.slice(0, 60)); await DB.setKV('current', A.id);
   }).catch(() => {});
 };
-function saveSoon() { clearTimeout(saveT); saveT = setTimeout(flushScene, 250); }
+function saveSoon() { clearTimeout(saveT); saveT = setTimeout(() => { flushScene(); autoVersion(); }, 250); }
+/* ---------- Versions horodatées de la scène ---------- */
+const VER_MAX = 20, VER_EVERY = 10 * 60 * 1000;
+let lastAutoVer = 0;
+const verKey = id => 'ver:' + id;
+const fmtDate = ts => { const d = new Date(ts), p = n => String(n).padStart(2, '0'); return p(d.getDate()) + '/' + p(d.getMonth() + 1) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()); };
+async function addVersion(label, force) {
+  if (!storageOk || !DB.db) return false;
+  const doc = JSON.parse(JSON.stringify(sceneDoc())); let list = (await DB.getKV(verKey(A.id))) || [];
+  const sig = JSON.stringify([doc.inst, doc.floors, doc.groups, doc.anims]);
+  if (!force && list.length && list[0].sig === sig) return false;
+  if (list.length && list[0].sig === sig) return false;
+  list.unshift({ ts: Date.now(), label, n: doc.inst.length, sig, doc });
+  await DB.setKV(verKey(A.id), list.slice(0, VER_MAX)); return true;
+}
+async function autoVersion() {
+  if (Date.now() - lastAutoVer < VER_EVERY || !A.inst.length) return;
+  lastAutoVer = Date.now(); try { if (await addVersion('Automatique')) { if (!$('#ap-scene').hidden) renderVersions(); } } catch (e) {}
+}
+async function renderVersions() {
+  const box = $('#aVers'); if (!box || !DB.db) return; const list = (await DB.getKV(verKey(A.id))) || []; box.innerHTML = '';
+  if (!list.length) { box.innerHTML = '<p class="note">Aucune version pour l\'instant.</p>'; return; }
+  list.forEach((v, i) => {
+    const row = document.createElement('div'); row.className = 'row'; row.style.cssText = 'margin:0 0 6px;flex-wrap:nowrap';
+    const t = document.createElement('span'); t.style.cssText = 'flex:1;min-width:0;font-size:12.5px'; t.textContent = fmtDate(v.ts) + ' · ' + v.label + ' · ' + v.n + ' objet(s)';
+    const r = document.createElement('button'); r.className = 'btn small'; r.textContent = 'Restaurer'; r.onclick = () => restoreVersion(i);
+    const d = document.createElement('button'); d.className = 'btn small'; d.textContent = '✕'; d.setAttribute('aria-label', 'Supprimer la version'); d.onclick = async () => { const l = (await DB.getKV(verKey(A.id))) || []; l.splice(i, 1); await DB.setKV(verKey(A.id), l); renderVersions(); };
+    row.append(t, r, d); box.appendChild(row);
+  });
+}
+async function restoreVersion(i) {
+  const list = (await DB.getKV(verKey(A.id))) || [], v = list[i]; if (!v) return;
+  if (!(await confirmBox('Restaurer cette version', 'La scène reviendra à l\'état du ' + fmtDate(v.ts) + '. L\'état actuel est d\'abord gardé comme version, tu pourras y revenir.', 'Restaurer'))) return;
+  await addVersion('Avant restauration', true);
+  const keep = A.id; loadSceneDoc({ ...JSON.parse(JSON.stringify(v.doc)), id: keep }); changed(); await flushScene(); renderSceneList(); renderVersions(); toast('Version du ' + fmtDate(v.ts) + ' restaurée');
+}
+$('#aVerNow').onclick = async () => { try { (await addVersion('Manuelle', true)) ? toast('Version enregistrée') : toast('Rien n\'a changé depuis la dernière version.'); renderVersions(); } catch (e) { toast('Enregistrement impossible.'); } };
 window.addEventListener('pagehide', flushScene);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushScene(); });
 function loadSceneDoc(d) {
@@ -1882,7 +1923,7 @@ async function openScene(id) {
 async function deleteScene(id) {
   if (!(await confirmBox('Supprimer la scène', 'Cette scène sera effacée de ce téléphone (pas du PC).', 'Supprimer'))) return;
   let idx = ((await DB.getKV('scenes')) || []).filter(x => x.id !== id); await DB.setKV('scenes', idx);
-  try { await rq(DB.db.transaction('meta', 'readwrite').objectStore('meta').delete('scene:' + id)); } catch (e) {}
+  try { await rq(DB.db.transaction('meta', 'readwrite').objectStore('meta').delete('scene:' + id)); await rq(DB.db.transaction('meta', 'readwrite').objectStore('meta').delete(verKey(id))); } catch (e) {}
   if (id === A.id) { if (idx.length) await openScene(idx[0].id); else { A.inst = []; await newScene(); } }
   renderSceneList();
 }

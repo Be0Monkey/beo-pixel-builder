@@ -116,6 +116,7 @@ Confort de l'édition web :
 - **Aperçu avant de valider** : dans Objet → Répéter, les copies (ou le mur en perspective) s'affichent en transparence sur la scène avant de toucher « Créer ». Les derniers réglages sont retenus.
 - **Favoris et récents** : l'étoile d'un module le met dans « ★ Favoris » ; la rangée « Récents » rappelle les derniers modules posés.
 - **Sauvegarde complète** : onglet Scène → « Sauvegarde complète » crée un seul fichier (modules, scènes, animations, favoris) ; « Restaurer une sauvegarde » le remet sans rien supprimer.
+- **Versions** : onglet Scène → « Versions de cette scène ». Une photo de la scène est prise toutes les 10 minutes de travail (20 gardées) ou à la demande ; « Restaurer » revient en arrière en gardant l'état actuel comme version.
 - **Téléphone** : le bouton « Panneau » replie le panneau pour voir toute la scène ; les boutons sont plus grands au doigt.
 
 Limites : le paquet scène ne transporte que les modules, les positions, les étages, les groupes et les animations (pas de variantes ni de cartes de normales) ; vider les données du navigateur efface modules et scènes, d'où l'intérêt de la sauvegarde complète.

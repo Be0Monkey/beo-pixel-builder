@@ -21,4 +21,4 @@
 | Animations (images, durée, boucle, aperçu) | ✔ |
 | Export PNG de la scène, export Godot / JSON | ✔ |
 | Sauvegarde de plusieurs scènes | ✔ |
-| Versions / sauvegardes horodatées | ○ |
+| Versions / sauvegardes horodatées | ✔ |
