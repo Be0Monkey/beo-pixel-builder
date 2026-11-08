@@ -32,7 +32,7 @@ Contexte : pas encore testé par des proches. Public visé = PC, tablette sans �
 - ☐ Regrouper les actions rares d'un objet dans un menu « Plus… » (Objet : ordre, groupe, dupliquer, modifier, supprimer).
 - ☐ Un seul bouton « Enregistrer » dans Dessiner qui propose : mettre à jour le module ou créer un module (au lieu de « → Mes modules » + « Mettre à jour »).
 - ☐ Mode simple / mode complet : cacher Calques, Étages, Animations tant qu'on n'en a pas besoin.
-- ☐ Écran d'accueil de 4 étapes au premier lancement (choisir, poser, déplacer, envoyer au PC).
+- ☑ Tutoriel de 6 étapes au premier lancement (web), rouvrable depuis ⚙ Réglages.
 - ☐ Scène d'exemple déjà montée, à modifier pour comprendre.
 - ☐ Bouton « Annuler » toujours visible sur téléphone (pas seulement au clavier).
 
@@ -85,8 +85,8 @@ Assembler
 - ☐ Rechercher un objet dans la scène par son nom de module.
 
 Confort général
-- ☐ Thème clair / sombre / suivre le système, au choix.
-- ☐ Taille de l'interface réglable (petite / normale / grande) pour les écrans différents.
+- ☑ Thème clair / sombre / suivre l'appareil, au choix (web : ⚙ Réglages).
+- ☑ Taille de l'interface réglable (normale / grande / très grande) (web : ⚙ Réglages).
 - ☑ Aide intégrée : touche ? (fait) ; ☐ bulles d'aide sur chaque outil.
 - ☐ Messages d'erreur qui disent quoi faire (et pas seulement ce qui ne va pas).
 - ☑ Sauvegarde automatique visible (« enregistré à 16:02 »), pour rassurer.
@@ -114,6 +114,7 @@ Confort général
 - ☑ Animations, exports (PNG, Godot, JSON), plusieurs scènes, versions horodatées de la scène.
 - ☑ Raccourcis clavier, copier-coller entre scènes, favoris et récents, sauvegarde / restauration complète, panneau repliable sur téléphone, gros boutons tactiles.
 - ☑ Masquer / démasquer des modules ; modifier un module avec Dessiner.
+- ☑ Raccourcis corrigés (web) : ils ne se bloquent plus après un clic sur une case ou une liste ; ajout de Ctrl+S (enregistrer) et Ctrl+M (miroir, dans Assembler).
 - ☑ Palette de couleurs : 3 palettes (elfvsorc, kit, base du PC), récentes, code couleur, retirer des couleurs.
 - ☑ Une seule appli (PC + web), modules de départ intégrés, accès depuis le téléphone.
 

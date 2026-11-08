@@ -243,6 +243,40 @@ body:not([data-mode="asm"]) #asm { display: none; }
   .mwrap .star { width: 36px; height: 36px; border-radius: 18px; font-size: 20px; }
   .mrecent button { width: 56px; height: 56px; }
 }
+
+/* Réglages : taille de l'interface (pour tablette / doigts) */
+html.ui-l .btn { min-height: 44px; padding: 9px 14px; font-size: 15px; }
+html.ui-l .btn.small { min-height: 44px; min-width: 44px; padding: 8px 12px; font-size: 14.5px; }
+html.ui-l .tab { min-height: 48px; font-size: 14px; }
+html.ui-l .modes button { padding: 11px 16px; font-size: 15px; }
+html.ui-l select, html.ui-l input[type=number], html.ui-l input[type=text] { min-height: 42px; font-size: 15px; }
+html.ui-l .note, html.ui-l .kv { font-size: 14px; }
+html.ui-l #app { grid-template-columns: 92px minmax(0, 1fr) 330px; }
+html.ui-l .tool { padding: 12px 2px 10px; font-size: 12px; }
+html.ui-l .tool svg { width: 32px; height: 32px; }
+html.ui-l .mwrap .star, html.ui-l .mwrap .eye { width: 36px; height: 36px; border-radius: 18px; font-size: 19px; }
+html.ui-l .mrecent button { width: 56px; height: 56px; }
+html.ui-xl .btn { min-height: 54px; padding: 11px 18px; font-size: 17px; }
+html.ui-xl .btn.small { min-height: 54px; min-width: 54px; padding: 10px 14px; font-size: 16.5px; }
+html.ui-xl .tab { min-height: 56px; font-size: 16px; }
+html.ui-xl .modes button { padding: 14px 20px; font-size: 17px; }
+html.ui-xl select, html.ui-xl input[type=number], html.ui-xl input[type=text] { min-height: 50px; font-size: 17px; }
+html.ui-xl .note, html.ui-xl .kv { font-size: 16px; }
+html.ui-xl #app { grid-template-columns: 112px minmax(0, 1fr) 370px; }
+html.ui-xl .tool { padding: 16px 2px 12px; font-size: 14px; }
+html.ui-xl .tool svg { width: 40px; height: 40px; }
+html.ui-xl .mwrap .star, html.ui-xl .mwrap .eye { width: 44px; height: 44px; border-radius: 22px; font-size: 23px; }
+html.ui-xl .mrecent button { width: 68px; height: 68px; }
+@media (max-width: 760px) { html.ui-l #app, html.ui-xl #app, html.ui-l #asm, html.ui-xl #asm { grid-template-columns: minmax(0, 1fr); } }
+html.ui-l .opts, html.ui-xl .opts { flex-wrap: wrap; overflow-x: visible; }
+html.ui-l .opts .sep, html.ui-xl .opts .sep { display: none; }
+.tourimg { font-size: 44px; line-height: 1; margin: 2px 0 8px; }
+.tourdots { display: flex; gap: 6px; justify-content: center; margin: 12px 0 2px; }
+.tourdots i { width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
+.tourdots i.on { background: var(--accent); }
+#ovTour .dlg p { line-height: 1.55; margin: 6px 0; }
+.setrow { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 14px; }
+.setrow .btn { flex: 1 1 90px; }
 </style>
 
 <div id="app">
@@ -258,6 +292,7 @@ body:not([data-mode="asm"]) #asm { display: none; }
       <button class="btn primary" id="bSave">Enregistrer</button>
       <button class="btn" id="bExport">Exporter PNG</button>
       <button class="btn" id="bHelp" aria-label="Aide : raccourcis clavier" title="Raccourcis clavier (?)">?</button>
+      <button class="btn" id="bSet" aria-label="Réglages : thème et taille" title="Réglages : thème et taille de l'interface">⚙</button>
       <button class="btn" id="bToMod" title="Ajoute ce sprite à tes modules, prêt à poser dans une scène">→ Mes modules</button>
       <button class="btn primary" id="bSendPlace" title="Ajoute le sprite aux modules et passe à la scène pour le poser (Ctrl+Entrée)">→ Poser dans la scène</button>
       <button class="btn primary" id="bModSave" hidden>Mettre à jour le module</button>
@@ -351,6 +386,8 @@ body:not([data-mode="asm"]) #asm { display: none; }
     <div class="actions">
       <button class="btn" id="aUndo">↶ Annuler</button>
       <button class="btn" id="aRedo">↷ Rétablir</button>
+      <button class="btn" id="aHelp" aria-label="Aide : raccourcis clavier" title="Raccourcis clavier (?)">?</button>
+      <button class="btn" id="aSet" aria-label="Réglages : thème et taille" title="Réglages : thème et taille de l'interface">⚙</button>
       <button class="btn primary" id="aExport">Envoyer au PC</button>
     </div>
   </header>
@@ -434,7 +471,7 @@ body:not([data-mode="asm"]) #asm { display: none; }
         </div>
       </section>
       <section><h3>Raccourcis clavier (PC)</h3>
-        <p class="note" style="line-height:1.6">Ctrl+Z / Ctrl+Y annuler / rétablir · Ctrl+D dupliquer · Ctrl+C / Ctrl+V copier / coller (même entre scènes) · Ctrl+A tout sélectionner · Ctrl+G grouper (+Maj : dégrouper) · Suppr effacer · flèches déplacer d'1 pixel · Maj+flèches d'une case de grille · P / S / H outils Poser / Sélection / Main · Échap désélectionner</p>
+        <p class="note" style="line-height:1.6">Ctrl+Z / Ctrl+Y annuler / rétablir · Ctrl+D dupliquer · Ctrl+C / Ctrl+V copier / coller (même entre scènes) · Ctrl+A tout sélectionner · Ctrl+G grouper (+Maj : dégrouper) · Ctrl+M miroir · Ctrl+S enregistrer · Suppr effacer · flèches déplacer d'1 pixel · Maj+flèches d'une case de grille · P / S / H outils Poser / Sélection / Main · Échap désélectionner</p>
       </section>
       <section><h3>Modules</h3>
         <p class="note" id="aLibNote"></p>
@@ -461,12 +498,32 @@ body:not([data-mode="asm"]) #asm { display: none; }
   <div class="dlg" role="dialog" aria-label="Raccourcis clavier" style="max-width:520px;max-height:85vh;overflow:auto">
     <h2>Raccourcis clavier</h2>
     <h3 style="margin:8px 0 4px;font-size:14px">Dessiner</h3>
-    <p class="note" style="line-height:1.7">B crayon · E gomme · G pot de peinture · I pipette · L ligne · R rectangle · O ellipse · S sélection · H main · M miroir · + / − zoom · 1 à 4 taille du pinceau · Espace + glisser : déplacer la vue · Ctrl+Z / Ctrl+Y annuler / rétablir · Ctrl+Entrée : poser dans la scène</p>
+    <p class="note" style="line-height:1.7">B crayon · E gomme · G pot de peinture · I pipette · L ligne · R rectangle · O ellipse · S sélection · H main · M miroir · + / − zoom · 1 à 4 taille du pinceau · Espace + glisser : déplacer la vue · Ctrl+Z / Ctrl+Y annuler / rétablir · Ctrl+S enregistrer · Ctrl+Entrée : poser dans la scène</p>
     <h3 style="margin:8px 0 4px;font-size:14px">Assembler</h3>
-    <p class="note" style="line-height:1.7">P poser · S sélection · H main · Ctrl+D dupliquer · Ctrl+C / Ctrl+V copier / coller · Ctrl+A tout sélectionner · Ctrl+G grouper (+Maj : dégrouper) · Suppr effacer · flèches : 1 pixel (+Maj : une case) · Échap désélectionner · Ctrl+Z / Ctrl+Y annuler / rétablir</p>
+    <p class="note" style="line-height:1.7">P poser · S sélection · H main · Ctrl+D dupliquer · Ctrl+C / Ctrl+V copier / coller · Ctrl+A tout sélectionner · Ctrl+G grouper (+Maj : dégrouper) · Ctrl+M miroir · Ctrl+S enregistrer · Suppr effacer · flèches : 1 pixel (+Maj : une case) · Échap désélectionner · Ctrl+Z / Ctrl+Y annuler / rétablir</p>
     <h3 style="margin:8px 0 4px;font-size:14px">Partout</h3>
     <p class="note" style="line-height:1.7">? ouvre cette aide · Échap la ferme</p>
     <div class="dlgfoot"><button class="btn primary" id="helpClose">Fermer</button></div>
+  </div>
+</div>
+<div class="overlay" id="ovSet" hidden>
+  <div class="dlg" role="dialog" aria-label="Réglages" style="max-width:460px">
+    <h2>Réglages</h2>
+    <h3 style="margin:6px 0 0;font-size:14px">Taille de l'interface</h3>
+    <p class="note" style="margin:2px 0 0">Plus grand = boutons plus faciles à toucher avec un doigt ou un stylet.</p>
+    <div class="setrow" id="setSize"><button class="btn" data-v="">Normale</button><button class="btn" data-v="l">Grande</button><button class="btn" data-v="xl">Très grande</button></div>
+    <h3 style="margin:6px 0 0;font-size:14px">Thème</h3>
+    <div class="setrow" id="setTheme"><button class="btn" data-v="">Comme l'appareil</button><button class="btn" data-v="light">Clair</button><button class="btn" data-v="dark">Sombre</button></div>
+    <div class="dlgfoot"><button class="btn" id="setTour">Revoir le tutoriel</button><button class="btn primary" id="setClose">Fermer</button></div>
+  </div>
+</div>
+<div class="overlay" id="ovTour" hidden>
+  <div class="dlg" role="dialog" aria-label="Tutoriel" style="max-width:480px">
+    <div class="tourimg" id="tourImg" aria-hidden="true"></div>
+    <h2 id="tourTitle"></h2>
+    <div id="tourBody"></div>
+    <div class="tourdots" id="tourDots" aria-hidden="true"></div>
+    <div class="dlgfoot"><button class="btn" id="tourSkip">Passer</button><button class="btn" id="tourPrev">Précédent</button><button class="btn primary" id="tourNext">Suivant</button></div>
   </div>
 </div>
 <div class="overlay" id="ovConfirm" hidden>
@@ -980,7 +1037,66 @@ $('#bUncrop').onclick = () => { if (!cropUndo) return; const k = cropUndo; setSp
 /* ---------- Aide ---------- */
 const helpOpen = v => { $('#ovHelp').hidden = !v; if (v) $('#helpClose').focus(); };
 $('#bHelp').onclick = () => helpOpen(true); $('#helpClose').onclick = () => helpOpen(false);
-window.addEventListener('keydown', e => { if (e.key === '?' && !e.target.matches('input,textarea,select')) { helpOpen($('#ovHelp').hidden); e.preventDefault(); } else if (e.key === 'Escape' && !$('#ovHelp').hidden) helpOpen(false); });
+$('#aHelp').onclick = () => helpOpen(true);
+/* Réglages : taille de l'interface et thème, mémorisés dans ce navigateur */
+const UIK = 'atelier-pixel:ui';
+let uiPref = { size: '', theme: '' };
+try { Object.assign(uiPref, JSON.parse(localStorage.getItem(UIK) || '{}')); } catch (e) {}
+let themeSetByUs = false;
+function applyUi() {
+  const r = document.documentElement;
+  r.classList.remove('ui-l', 'ui-xl'); if (uiPref.size) r.classList.add('ui-' + uiPref.size);
+  if (uiPref.theme) { r.setAttribute('data-theme', uiPref.theme); themeSetByUs = true; }
+  else if (themeSetByUs) { r.removeAttribute('data-theme'); themeSetByUs = false; }
+  $$('#setSize [data-v]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === uiPref.size)));
+  $$('#setTheme [data-v]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === uiPref.theme)));
+  try { window.dispatchEvent(new Event('resize')); } catch (e) {}
+}
+function saveUi() { try { localStorage.setItem(UIK, JSON.stringify(uiPref)); } catch (e) {} applyUi(); }
+$$('#setSize [data-v]').forEach(b => b.onclick = () => { uiPref.size = b.dataset.v; saveUi(); });
+$$('#setTheme [data-v]').forEach(b => b.onclick = () => { uiPref.theme = b.dataset.v; saveUi(); });
+const setOpen = v => { $('#ovSet').hidden = !v; if (v) $('#setClose').focus(); };
+$('#bSet').onclick = () => setOpen(true); $('#aSet').onclick = () => setOpen(true); $('#setClose').onclick = () => setOpen(false);
+window.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#ovSet').hidden) setOpen(false); });
+applyUi();
+/* Tutoriel du premier lancement (rouvrable depuis ⚙ Réglages) */
+const TOUR = [
+  ['👋', 'Bienvenue', '<p>Cet atelier sert à <b>dessiner des sprites</b> en pixel art, puis à les <b>assembler</b> pour fabriquer une scène (une pièce, un décor, un personnage…).</p><p>Il y a deux parties, que tu changes en haut : <b>Dessiner</b> et <b>Assembler</b>.</p>'],
+  ['✏️', 'Dessiner un sprite', '<p>Les outils sont à gauche (crayon, gomme, pot de peinture…). Les couleurs sont à droite.</p><p>Tu peux annuler avec <b>Ctrl+Z</b>. Avec une tablette graphique ou un stylet, le bouton <b>Lissage</b> adoucit les tremblements et <b>Pixel parfait</b> garde des traits propres.</p>'],
+  ['➡️', 'Envoyer dans la scène', '<p>Quand ton sprite te plaît, touche <b>→ Poser dans la scène</b> (ou <b>Ctrl+Entrée</b>). Il devient un « module » que tu peux poser autant de fois que tu veux.</p>'],
+  ['🧩', 'Assembler', '<p>Dans <b>Assembler</b>, choisis un module dans la liste puis touche la scène pour le poser.</p><p>Avec l\'outil <b>Sélection</b>, tu déplaces, retournes (miroir), alignes, groupes ou répètes des objets. Dans l\'onglet <b>Objet</b>, tu trouves tous ces boutons.</p>'],
+  ['💾', 'Ton travail est gardé', '<p>Tout est enregistré <b>automatiquement dans ce navigateur</b>. Pour ne rien perdre (ou changer d\'appareil), va dans l\'onglet <b>Scène</b> et fais une sauvegarde complète.</p><p>Le bouton <b>Envoyer au PC</b> prépare un fichier pour l\'application Windows.</p>'],
+  ['⌨️', 'Aide à portée de main', '<p>Touche <b>?</b> pour voir tous les raccourcis clavier.</p><p>Le bouton <b>⚙</b> change la <b>taille des boutons</b> (pratique au doigt ou au stylet) et le <b>thème</b> clair ou sombre. Tu peux y revoir ce tutoriel.</p>']
+];
+let tourI = 0;
+const TOURK = 'atelier-pixel:tour';
+function tourShow() {
+  const t = TOUR[tourI];
+  $('#tourImg').textContent = t[0]; $('#tourTitle').textContent = t[1]; $('#tourBody').innerHTML = t[2];
+  $('#tourDots').innerHTML = TOUR.map((_, i) => '<i class="' + (i === tourI ? 'on' : '') + '"></i>').join('');
+  $('#tourPrev').hidden = tourI === 0; $('#tourSkip').hidden = tourI === TOUR.length - 1;
+  $('#tourNext').textContent = tourI === TOUR.length - 1 ? 'C\'est parti !' : 'Suivant';
+}
+function tourOpen(v) {
+  if (v) { tourI = 0; tourShow(); } else { try { localStorage.setItem(TOURK, '1'); } catch (e) {} }
+  $('#ovTour').hidden = !v; if (v) $('#tourNext').focus();
+}
+$('#tourNext').onclick = () => { if (tourI >= TOUR.length - 1) tourOpen(false); else { tourI++; tourShow(); } };
+$('#tourPrev').onclick = () => { if (tourI > 0) { tourI--; tourShow(); } };
+$('#tourSkip').onclick = () => tourOpen(false);
+$('#setTour').onclick = () => { setOpen(false); tourOpen(true); };
+window.addEventListener('keydown', e => {
+  if ($('#ovTour').hidden) return;
+  if (e.key === 'Escape') tourOpen(false); else if (e.key === 'ArrowRight') $('#tourNext').click(); else if (e.key === 'ArrowLeft') $('#tourPrev').click();
+}, true);
+try { if (!localStorage.getItem(TOURK) && !navigator.webdriver) setTimeout(() => tourOpen(true), 400); } catch (e) {}
+/* Raccourcis : seuls les champs où l'on TAPE du texte les bloquent ; une case, un curseur ou une couleur
+   qu'on vient de toucher ne doivent pas les rendre muets. */
+const typingIn = t => !!t && (t.isContentEditable || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' ||
+  (t.tagName === 'INPUT' && !['checkbox', 'radio', 'range', 'color', 'button', 'file', 'submit'].includes(t.type)));
+window.typingIn = typingIn;
+document.addEventListener('change', e => { const t = e.target; if (t && (t.tagName === 'SELECT' || (t.tagName === 'INPUT' && ['checkbox', 'radio', 'range', 'color'].includes(t.type)))) setTimeout(() => t.blur(), 0); }, true);
+window.addEventListener('keydown', e => { if (e.key === '?' && !typingIn(e.target)) { helpOpen($('#ovHelp').hidden); e.preventDefault(); } else if (e.key === 'Escape' && !$('#ovHelp').hidden) helpOpen(false); });
 toggle('#oFill', () => fillShape, v => { fillShape = v; });
 $('#zIn').onclick = () => zoomTo(zoomStep(1), stage.clientWidth / 2, stage.clientHeight / 2);
 $('#zOut').onclick = () => zoomTo(zoomStep(-1), stage.clientWidth / 2, stage.clientHeight / 2);
@@ -993,8 +1109,9 @@ $$('.tab').forEach(t => t.onclick = () => {
 });
 window.addEventListener('keydown', e => {
   if (document.body.dataset.mode !== 'asm' && (e.ctrlKey || e.metaKey) && e.key === 'Enter') { $('#bSendPlace').click(); e.preventDefault(); return; }
-  if (document.body.dataset.mode === 'asm' || e.target.matches('input')) return;
+  if (document.body.dataset.mode === 'asm' || typingIn(e.target)) return;
   const k = e.key.toLowerCase();
+  if ((e.ctrlKey || e.metaKey) && k === 's') { e.preventDefault(); $('#bSave').click(); return; }
   if (e.code === 'Space') { spaceDown = true; cv.style.cursor = 'grab'; e.preventDefault(); return; }
   if ((e.ctrlKey || e.metaKey) && k === 'z') { e.shiftKey ? doRedo() : doUndo(); e.preventDefault(); return; }
   if ((e.ctrlKey || e.metaKey) && k === 'y') { doRedo(); e.preventDefault(); return; }
@@ -1574,13 +1691,15 @@ async function pasteSel() {
 }
 function selectAll() { const ids = A.inst.filter(o => shown(o) && !locked(o)).map(o => o.id); if (!ids.length) return; A.tool !== 'select' && setTool('select'); setSels(ids); }
 window.addEventListener('keydown', e => {
-  if (document.body.dataset.mode !== 'asm' || e.target.matches('input,select,textarea') || !$('.overlay:not([hidden])') === false) return;
+  if (document.body.dataset.mode !== 'asm' || window.typingIn(e.target) || !$('.overlay:not([hidden])') === false) return;
   const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
   if (mod && k === 'z') { e.shiftKey ? redo() : undo(); e.preventDefault(); }
   else if (mod && k === 'y') { redo(); e.preventDefault(); }
   else if (mod && k === 'd') { duplicateSel(); e.preventDefault(); }
   else if (mod && k === 'g') { e.shiftKey ? ungroupSel() : groupSel(); e.preventDefault(); }
   else if (mod && k === 'a') { selectAll(); e.preventDefault(); }
+  else if (mod && k === 's') { e.preventDefault(); flushScene(); toast('Scène enregistrée dans ce navigateur.'); }
+  else if (mod && k === 'm') { mirrorSel(); e.preventDefault(); }
   else if (mod && k === 'c') { copySel(); e.preventDefault(); }
   else if (mod && k === 'v') { pasteSel(); e.preventDefault(); }
   else if (mod) return;
@@ -2474,7 +2593,6 @@ $('#bOpen').addEventListener('click', () => { if (editingMod) { editingMod = nul
 })();
 
 </script>
-
 <script>
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(function () {});
 </script>
