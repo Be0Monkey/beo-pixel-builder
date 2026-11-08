@@ -10,7 +10,7 @@ from copy import deepcopy
 from sbs.domain.ids import new_id
 from sbs.domain.pixel import CLEAR, MAX_LAYERS, RGBA, PixelDoc, PixLayer
 
-TOOLS = ("pencil", "eraser", "picker", "fill", "select")
+TOOLS = ("pencil", "eraser", "picker", "fill", "select", "replace")
 MAX_PALETTE = 64
 DEFAULT_PALETTE: list[RGBA] = [
     (0, 0, 0, 255), (255, 255, 255, 255), (157, 157, 157, 255), (90, 60, 40, 255),
@@ -280,6 +280,15 @@ class PixelEditor:
         layer = self._editable_layer()
         if layer is None:
             return False
+        if tool == "replace":
+            if not self.doc.inside(x, y):
+                return False
+            i = self.doc.index(x, y)
+            old = tuple(layer.data[i:i + 4])
+            if old[3] == 0:
+                self.error = "pixel transparent : touche un pixel coloré"
+                return False
+            return self.replace_color(old, self.color) > 0
         if tool == "fill":
             return self._fill(layer, x, y)
         self._stroke, self._stroke_layer, self._last = {}, layer, (x, y)
@@ -327,6 +336,28 @@ class PixelEditor:
         return self._commit("Remplir", layer, changes)
 
     # --- actions sur la sélection ---------------------------------------------------------------------
+    def replace_color(self, old, new) -> int:
+        """Remplace, sur le calque actif, tous les pixels exactement de la couleur `old` par `new`.
+        Une seule commande d'historique (Ctrl+Z annule tout). Renvoie le nombre de pixels changés."""
+        layer = self._editable_layer()
+        if layer is None:
+            return 0
+        old, new = check_color(old), check_color(new)
+        if old == new:
+            self.error = "la couleur actuelle est déjà celle à remplacer"
+            return 0
+        ob, nb = bytes(old), bytes(new)
+        data, changes = layer.data, {}
+        for i in range(0, len(data), 4):
+            if data[i:i + 4] == ob:
+                changes[i] = (ob, nb)
+                data[i:i + 4] = nb
+        if not changes:
+            self.error = "aucun pixel de cette couleur sur ce calque"
+            return 0
+        self._commit("Remplacer une couleur", layer, changes)
+        return len(changes)
+
     def delete_selection(self) -> bool:
         if self.selection is None:
             self.error = "aucune sélection"

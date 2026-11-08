@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 from sbs.domain.pixel_edit import PixelEditor
 
 TOOL_LABELS = {"pencil": ("Crayon", "B"), "eraser": ("Gomme", "E"), "picker": ("Pipette", "I"),
-               "fill": ("Remplir", "G"), "select": ("Sélection", "M")}
+               "fill": ("Remplir", "G"), "select": ("Sélection", "M"), "replace": ("Remplacer couleur", "R")}
 ROLE = Qt.ItemDataRole.UserRole
 
 

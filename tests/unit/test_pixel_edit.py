@@ -127,3 +127,32 @@ def test_etat_enregistre_et_branche_perdue():
     assert e.modified
     e.begin(1, 1); e.end()  # nouvelle branche : l'état enregistré n'est plus atteignable
     assert e.modified
+
+
+def test_remplacer_couleur_un_seul_ctrl_z():
+    e = ed()
+    e.begin(0, 0); e.move(3, 0); e.end()            # 4 pixels rouges
+    e.set_color(BLUE)
+    n = len(e._stack)
+    assert e.replace_color(RED, BLUE) == 4
+    assert all(px(e, x, 0) == BLUE for x in range(4)) and len(e._stack) == n + 1
+    assert e.undo() and all(px(e, x, 0) == RED for x in range(4))
+
+
+def test_outil_remplacer_clique_sur_un_pixel():
+    e = ed()
+    e.begin(1, 1); e.end(); e.begin(2, 2); e.end()
+    e.set_color(BLUE); e.tool = "replace"
+    assert e.begin(1, 1) and e.end() is False
+    assert px(e, 1, 1) == BLUE and px(e, 2, 2) == BLUE
+
+
+def test_remplacer_refus_clairs():
+    e = ed()
+    e.tool = "replace"
+    assert e.begin(0, 0) is False and "transparent" in e.error   # pixel vide
+    e.tool = "pencil"; e.begin(0, 0); e.end()
+    assert e.replace_color(RED, RED) == 0 and "déjà" in e.error
+    assert e.replace_color(BLUE, RED) == 0 and "aucun pixel" in e.error
+    e.doc.active.locked = True
+    assert e.replace_color(RED, BLUE) == 0 and "verrouillé" in e.error

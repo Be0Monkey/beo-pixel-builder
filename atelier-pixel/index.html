@@ -68,13 +68,13 @@ button { cursor: pointer; }
   grid-template-rows: auto minmax(0, 1fr);
   grid-template-areas: "top top top" "tools center side";
 }
-.top { grid-area: top; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.top { grid-area: top; display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; row-gap: 6px; }
 .brand { font: 700 20px/1 var(--font-px); margin: 0; white-space: nowrap; letter-spacing: .02em; }
 #name {
   width: 150px; min-width: 90px; padding: 7px 9px; border: 1px solid var(--line);
   background: var(--panel); border-radius: 6px;
 }
-.actions { display: flex; gap: 6px; overflow-x: auto; min-width: 0; padding: 2px; scrollbar-width: none; }
+.actions { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; padding: 2px; flex: 1 1 420px; }
 .actions::-webkit-scrollbar { display: none; }
 .btn {
   border: 1px solid var(--line); background: var(--panel); border-radius: 6px;
@@ -217,6 +217,7 @@ body:not([data-mode="asm"]) #asm { display: none; }
 }
 
 .btn.del{border-color:var(--danger);color:var(--danger)}
+.stack .btn { white-space: normal; }
 .mwrap { position: relative; min-width: 0; display: grid; }
 .mwrap .star { position: absolute; top: 2px; right: 2px; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 13px; background: color-mix(in srgb, var(--bg) 80%, transparent); color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer; }
 .mwrap .star[aria-pressed="true"] { color: #e0a800; }
@@ -256,7 +257,9 @@ body:not([data-mode="asm"]) #asm { display: none; }
       <button class="btn" id="bOpen">Ouvrir un PNG</button>
       <button class="btn primary" id="bSave">Enregistrer</button>
       <button class="btn" id="bExport">Exporter PNG</button>
+      <button class="btn" id="bHelp" aria-label="Aide : raccourcis clavier" title="Raccourcis clavier (?)">?</button>
       <button class="btn" id="bToMod" title="Ajoute ce sprite à tes modules, prêt à poser dans une scène">→ Mes modules</button>
+      <button class="btn primary" id="bSendPlace" title="Ajoute le sprite aux modules et passe à la scène pour le poser (Ctrl+Entrée)">→ Poser dans la scène</button>
       <button class="btn primary" id="bModSave" hidden>Mettre à jour le module</button>
       <button class="btn" id="bModCancel" hidden>Annuler la modification</button>
     </div>
@@ -275,6 +278,8 @@ body:not([data-mode="asm"]) #asm { display: none; }
       <span class="sep"></span>
       <button class="btn small" id="oMirror" aria-pressed="false" title="Dessine aussi le côté opposé (M)">Miroir</button>
       <button class="btn small" id="oGrid" aria-pressed="true">Grille</button>
+      <button class="btn small" id="oSmooth" aria-pressed="false" title="Lisse les tremblements de la main (utile à la tablette)">Lissage</button>
+      <button class="btn small" id="oPP" aria-pressed="false" title="Supprime les coins en double sur les traits (pixel parfait)">Pixel parfait</button>
       <button class="btn small" id="oFill" aria-pressed="false" hidden>Plein</button>
       <span class="sep"></span>
       <button class="btn small" id="zOut" aria-label="Zoom arrière">−</button>
@@ -304,9 +309,14 @@ body:not([data-mode="asm"]) #asm { display: none; }
       <section><h3>Palette</h3>
         <select id="palSet" aria-label="Choisir la palette" class="btn" style="width:100%;margin-bottom:8px"><option value="elf">elfvsorc (48 couleurs)</option><option value="kit">Couleurs du kit (tirées des modules)</option><option value="base">Base du PC (16 couleurs)</option></select>
         <div class="pal" id="pal"></div><p class="note" id="palNote" style="margin:6px 0 0"></p></section>
+      <section><h3>Nuances de la couleur</h3><div class="custom" id="ramp" style="margin-top:0"></div><p class="note" style="margin:6px 0 0">Du plus sombre au plus clair : pratique pour ombrer et éclairer.</p></section>
       <section><h3>Récentes</h3><div class="custom" id="recentCols"><span class="note" style="margin:0">Les couleurs que tu utilises apparaissent ici.</span></div></section>
       <section><h3>Mes couleurs</h3><div class="custom" id="custom"><label class="addc" title="Ajouter une couleur">+<input type="color" id="cpick" value="#c8404a"></label></div>
         <div class="row" style="margin-top:8px"><button class="btn small" id="cRemove" aria-pressed="false">Retirer des couleurs</button></div></section>
+      <section><h3>Remplacer une couleur</h3>
+        <div class="row" style="align-items:center;gap:8px;margin-bottom:8px"><div class="curchip" id="rcFrom" style="width:28px;height:28px;background:repeating-conic-gradient(#ccc 0 25%,#fff 0 50%) 0 0/10px 10px"></div><span aria-hidden="true">→</span><div class="curchip" id="rcTo" style="width:28px;height:28px"></div></div>
+        <div class="stack"><button class="btn" id="rcPick">1. Choisir la couleur à remplacer (touche le dessin)</button><button class="btn primary" id="rcApply" disabled>2. Remplacer par la couleur actuelle</button></div>
+        <label class="note" style="display:flex;gap:6px;align-items:center;margin-top:6px"><input type="checkbox" id="rcAll"> Sur tous les calques</label></section>
     </div>
     <div class="panel" id="p-layers" hidden>
       <p class="note">Les calques s'empilent : le premier de la liste est devant. Dessine le contour, les couleurs et les ombres chacun sur son calque.</p>
@@ -318,6 +328,7 @@ body:not([data-mode="asm"]) #asm { display: none; }
         <button class="btn small" id="lMerge">Fusionner ↓</button>
         <button class="btn small" id="lDel">Supprimer</button>
       </div>
+      <div class="lacts" style="margin-top:8px"><button class="btn small" id="bCrop" title="Réduit la taille du sprite à la zone dessinée">Recadrer au contenu</button><button class="btn small" id="bUncrop" hidden>Annuler le recadrage</button></div>
       <div class="llist" id="llist"></div>
     </div>
     <div class="panel" id="p-preview" hidden>
@@ -359,6 +370,7 @@ body:not([data-mode="asm"]) #asm { display: none; }
       <button class="btn small" id="aZin" aria-label="Zoom avant">+</button>
       <button class="btn small" id="aFit">Tout voir</button>
       <button class="btn small moblonly" id="aPanelToggle" aria-pressed="false">Panneau ▾</button>
+      <span class="note" id="aSaved" style="margin:0 0 0 auto" aria-live="polite"></span>
     </div>
     <div class="stagewrap" id="astage">
       <canvas id="acv" aria-label="Zone d'assemblage"></canvas>
@@ -443,6 +455,18 @@ body:not([data-mode="asm"]) #asm { display: none; }
     <p class="note">Touche l'image à l'endroit qui doit toucher le sol (le pied du module). C'est ce point qui se place sur la scène.</p>
     <canvas id="pvCanvas" class="pvc"></canvas>
     <div class="dlgfoot"><button class="btn" id="pvBottom">Bas et centre</button><button class="btn" id="pvCancel">Annuler</button><button class="btn primary" id="pvOk">Enregistrer</button></div>
+  </div>
+</div>
+<div class="overlay" id="ovHelp" hidden>
+  <div class="dlg" role="dialog" aria-label="Raccourcis clavier" style="max-width:520px;max-height:85vh;overflow:auto">
+    <h2>Raccourcis clavier</h2>
+    <h3 style="margin:8px 0 4px;font-size:14px">Dessiner</h3>
+    <p class="note" style="line-height:1.7">B crayon · E gomme · G pot de peinture · I pipette · L ligne · R rectangle · O ellipse · S sélection · H main · M miroir · + / − zoom · 1 à 4 taille du pinceau · Espace + glisser : déplacer la vue · Ctrl+Z / Ctrl+Y annuler / rétablir · Ctrl+Entrée : poser dans la scène</p>
+    <h3 style="margin:8px 0 4px;font-size:14px">Assembler</h3>
+    <p class="note" style="line-height:1.7">P poser · S sélection · H main · Ctrl+D dupliquer · Ctrl+C / Ctrl+V copier / coller · Ctrl+A tout sélectionner · Ctrl+G grouper (+Maj : dégrouper) · Suppr effacer · flèches : 1 pixel (+Maj : une case) · Échap désélectionner · Ctrl+Z / Ctrl+Y annuler / rétablir</p>
+    <h3 style="margin:8px 0 4px;font-size:14px">Partout</h3>
+    <p class="note" style="line-height:1.7">? ouvre cette aide · Échap la ferme</p>
+    <div class="dlgfoot"><button class="btn primary" id="helpClose">Fermer</button></div>
   </div>
 </div>
 <div class="overlay" id="ovConfirm" hidden>
@@ -537,6 +561,7 @@ const redraw = () => { if (!rafId) rafId = requestAnimationFrame(() => { rafId =
 const zoom = () => Math.max(1, Math.round(view.zf));
 
 function setSprite(w, h, layers) {
+  cropUndo = null; { const u = document.getElementById('bUncrop'); if (u) u.hidden = true; }
   S.w = w; S.h = h;
   S.layers = layers && layers.length ? layers : [{ name: 'Calque 1', vis: true, pix: new Uint32Array(w * h) }];
   S.act = S.layers.length - 1; layerSeq = S.layers.length + 1;
@@ -702,8 +727,26 @@ function pt(e) {
   return { sx, sy, x: Math.floor((sx - Math.round(view.ox)) / z), y: Math.floor((sy - Math.round(view.oy)) / z) };
 }
 function cancelStroke() { if (stroke) { S.pix.set(stroke.before); stroke = null; renderSprite(); redraw(); drawPreviews(); } }
+function fpt(e) { const r = cv.getBoundingClientRect(), z = zoom(); return { x: (e.clientX - r.left - Math.round(view.ox)) / z, y: (e.clientY - r.top - Math.round(view.oy)) / z }; }
+let smoothOn = false, ppOn = false;
+function paintPt(st, x, y) {
+  if (ppOn && brush === 1 && !mirror && st.c !== 0) {
+    const tr = st.trail, last = tr[tr.length - 1];
+    if (last && last.x === x && last.y === y) return;
+    tr.push({ x, y });
+    if (tr.length >= 3) {
+      const a = tr[tr.length - 3], b = tr[tr.length - 2], c = tr[tr.length - 1];
+      if (a.x !== c.x && a.y !== c.y && Math.abs(a.x - c.x) === 1 && Math.abs(a.y - c.y) === 1 && (b.x === a.x || b.y === a.y) && (b.x === c.x || b.y === c.y)) {
+        if (b.x >= 0 && b.y >= 0 && b.x < S.w && b.y < S.h) S.pix[b.y * S.w + b.x] = st.before[b.y * S.w + b.x];
+        tr.splice(tr.length - 2, 1);
+      }
+    }
+  }
+  brushAt(x, y, st.c);
+}
 function beginStroke(e) {
   const p = pt(e);
+  if (rcPicking) { rcPicking = false; $('#rcPick').setAttribute('aria-pressed', 'false'); pickReplaceSource(p); return; }
   const penEraser = e.pointerType === 'pen' && (e.buttons & 32);
   const t = penEraser ? 'eraser' : tool;
   if (t === 'picker') {
@@ -714,7 +757,7 @@ function beginStroke(e) {
   const before = S.pix.slice();
   if (t === 'pencil' || t === 'eraser') {
     const c = t === 'eraser' ? 0 : color;
-    stroke = { type: 'draw', before, c, last: p }; brushAt(p.x, p.y, c);
+    const f = fpt(e); stroke = { type: 'draw', before, c, last: p, raw: f, sm: { x: f.x, y: f.y }, trail: [] }; paintPt(stroke, p.x, p.y);
   } else if (t === 'fill') {
     flood(p.x, p.y, color);
     if (mirror) flood(S.w - 1 - p.x, p.y, color);
@@ -733,8 +776,9 @@ function moveStroke(e) {
   if (stroke.type === 'draw') {
     const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
     for (const ev of (evs.length ? evs : [e])) {
-      const q = pt(ev);
-      if (q.x !== stroke.last.x || q.y !== stroke.last.y) { bres(stroke.last.x, stroke.last.y, q.x, q.y, (x, y) => brushAt(x, y, stroke.c)); stroke.last = q; }
+      let q = pt(ev); const f = fpt(ev); stroke.raw = f;
+      if (smoothOn) { stroke.sm.x += (f.x - stroke.sm.x) * .3; stroke.sm.y += (f.y - stroke.sm.y) * .3; q = { x: Math.floor(stroke.sm.x), y: Math.floor(stroke.sm.y) }; }
+      if (q.x !== stroke.last.x || q.y !== stroke.last.y) { const st = stroke; bres(st.last.x, st.last.y, q.x, q.y, (x, y) => paintPt(st, x, y)); st.last = q; }
     }
   } else if (stroke.type === 'shape') {
     S.pix.set(stroke.before); shape(stroke.kind, stroke.start, p, color);
@@ -751,6 +795,7 @@ function moveStroke(e) {
 function endStroke() {
   if (!stroke) return;
   const s = stroke; stroke = null;
+  if (s.type === 'draw' && smoothOn) { const fx = Math.floor(s.raw.x), fy = Math.floor(s.raw.y); if (fx !== s.last.x || fy !== s.last.y) bres(s.last.x, s.last.y, fx, fy, (x, y) => paintPt(s, x, y)); renderSprite(); }
   if (s.type === 'selbox') { if (!s.moved) sel = null; updateSelUI(); redraw(); return; }
   if (s.type === 'selmove') { const dx = sel.x - s.orig.x, dy = sel.y - s.orig.y; if (!dx && !dy) { redraw(); return; } }
   commit(s.before); redraw();
@@ -812,8 +857,25 @@ function setTool(t) {
   if (t !== 'select') sel = null;
   updateSelUI(); redraw();
 }
-function setColor(v, track) {
+let rampBase = null;
+const hex2hsl = h => { const n = parseInt(h.slice(1), 16), r = (n >> 16) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255, mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2; let hh = 0, ss = 0; if (mx !== mn) { const d = mx - mn; ss = l > .5 ? d / (2 - mx - mn) : d / (mx + mn); hh = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; hh *= 60; } return [hh, ss, l]; };
+const hsl2hex = (h, s, l) => { h = ((h % 360) + 360) % 360; const a = s * Math.min(l, 1 - l), f = n => { const k = (n + h / 30) % 12, c = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)); return Math.round(c * 255).toString(16).padStart(2, '0'); }; return '#' + f(0) + f(8) + f(4); };
+function rampOf(h) {
+  const [hh, ss, ll] = hex2hsl(h), out = [];
+  for (let i = -3; i <= 3; i++) {
+    if (i === 0) { out.push(h); continue; }
+    const l = Math.max(.06, Math.min(.94, ll + i * .09)), shift = i < 0 ? ((240 - hh + 540) % 360 - 180) * .05 * -i : ((55 - hh + 540) % 360 - 180) * .04 * i;
+    out.push(hsl2hex(hh + shift, Math.max(0, Math.min(1, ss * (1 - Math.abs(i) * .04))), l));
+  }
+  return [...new Set(out)];
+}
+function renderRamp() {
+  const box = $('#ramp'); if (!box || !rampBase) return; box.innerHTML = '';
+  rampOf(rampBase).forEach(h => { const b = document.createElement('button'); b.className = 'sw'; b.dataset.c = h; b.style.background = h; b.style.width = '34px'; b.style.height = '34px'; b.style.aspectRatio = 'auto'; b.title = h; b.setAttribute('aria-label', 'Nuance ' + h); b.setAttribute('aria-pressed', String(packToHex(color) === h)); b.onclick = () => setColor(hexToPack(h), true, true); box.appendChild(b); });
+}
+function setColor(v, track, keepRamp) {
   color = v; const h = packToHex(v); if (track) pushRecentCol(h);
+  if (!keepRamp) rampBase = h; renderRamp(); const rt = $('#rcTo'); if (rt) rt.style.background = h;
   const hi = $('#hexIn'); if (hi && document.activeElement !== hi) hi.value = h;
   $('#curChip').style.background = h; $('#curHex').textContent = h; $('#cpick').value = h;
   $$('.sw').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.c === h)));
@@ -882,6 +944,43 @@ $$('[data-brush]').forEach(b => b.onclick = () => { brush = +b.dataset.brush; $$
 const toggle = (id, get, set) => { const b = $(id); b.onclick = () => { set(!get()); b.setAttribute('aria-pressed', String(get())); redraw(); }; };
 toggle('#oMirror', () => mirror, v => { mirror = v; });
 toggle('#oGrid', () => showGrid, v => { showGrid = v; });
+try { smoothOn = localStorage.getItem('atelier-pixel:smooth') === '1'; ppOn = localStorage.getItem('atelier-pixel:pp') === '1'; } catch (e) {}
+$('#oSmooth').setAttribute('aria-pressed', String(smoothOn)); $('#oPP').setAttribute('aria-pressed', String(ppOn));
+toggle('#oSmooth', () => smoothOn, v => { smoothOn = v; try { localStorage.setItem('atelier-pixel:smooth', v ? '1' : '0'); } catch (e) {} });
+toggle('#oPP', () => ppOn, v => { ppOn = v; try { localStorage.setItem('atelier-pixel:pp', v ? '1' : '0'); } catch (e) {} });
+/* ---------- Remplacer une couleur ---------- */
+var rcPicking = false, rcFromV = 0;
+function pickReplaceSource(p) {
+  if (p.x < 0 || p.y < 0 || p.x >= S.w || p.y >= S.h) return toast('Touche un pixel du dessin.');
+  let v = 0; for (let i = S.layers.length - 1; i >= 0; i--) { if (!S.layers[i].vis) continue; const q = S.layers[i].pix[p.y * S.w + p.x]; if (q >>> 24) { v = q; break; } }
+  if (!v) return toast('Ce pixel est vide : touche un pixel coloré.');
+  rcFromV = v; $('#rcFrom').style.background = packToHex(v); $('#rcApply').disabled = false; toast('Couleur à remplacer : ' + packToHex(v));
+}
+$('#rcPick').onclick = () => { rcPicking = true; $('#rcPick').setAttribute('aria-pressed', 'true'); toast('Touche le dessin pour choisir la couleur à remplacer.'); };
+$('#rcApply').onclick = () => {
+  if (!rcFromV) return; const all = $('#rcAll').checked, ls = all ? S.layers : [S.layers[S.act]];
+  let n = 0; for (const L of ls) for (let i = 0; i < L.pix.length; i++) if (L.pix[i] === rcFromV) n++;
+  if (!n) return toast('Aucun pixel de cette couleur' + (all ? '.' : ' sur ce calque (coche « Sur tous les calques »).'));
+  if (color === rcFromV) return toast('La couleur actuelle est déjà celle à remplacer.');
+  const to = color; structChange(() => { for (const L of ls) for (let i = 0; i < L.pix.length; i++) if (L.pix[i] === rcFromV) L.pix[i] = to; });
+  rcFromV = 0; $('#rcFrom').style.background = ''; $('#rcApply').disabled = true; toast(n + ' pixel(s) remplacé(s)');
+};
+/* ---------- Recadrer au contenu ---------- */
+var cropUndo = null;
+$('#bCrop').onclick = () => {
+  let x0 = S.w, y0 = S.h, x1 = -1, y1 = -1;
+  for (const L of S.layers) for (let y = 0; y < S.h; y++) for (let x = 0; x < S.w; x++) if (L.pix[y * S.w + x] >>> 24) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  if (x1 < 0) return toast('Le dessin est vide.');
+  const nw = x1 - x0 + 1, nh = y1 - y0 + 1; if (nw === S.w && nh === S.h) return toast('Le sprite est déjà recadré au plus juste.');
+  const keep = { w: S.w, h: S.h, layers: S.layers.map(L => ({ name: L.name, vis: L.vis, pix: L.pix.slice() })) };
+  const ls = S.layers.map(L => { const p = new Uint32Array(nw * nh); for (let y = 0; y < nh; y++) for (let x = 0; x < nw; x++) p[y * nw + x] = L.pix[(y + y0) * S.w + x + x0]; return { name: L.name, vis: L.vis, pix: p }; });
+  setSprite(nw, nh, ls); cropUndo = keep; $('#bUncrop').hidden = false; toast('Recadré : ' + nw + '×' + nh);
+};
+$('#bUncrop').onclick = () => { if (!cropUndo) return; const k = cropUndo; setSprite(k.w, k.h, k.layers); toast('Recadrage annulé'); };
+/* ---------- Aide ---------- */
+const helpOpen = v => { $('#ovHelp').hidden = !v; if (v) $('#helpClose').focus(); };
+$('#bHelp').onclick = () => helpOpen(true); $('#helpClose').onclick = () => helpOpen(false);
+window.addEventListener('keydown', e => { if (e.key === '?' && !e.target.matches('input,textarea,select')) { helpOpen($('#ovHelp').hidden); e.preventDefault(); } else if (e.key === 'Escape' && !$('#ovHelp').hidden) helpOpen(false); });
 toggle('#oFill', () => fillShape, v => { fillShape = v; });
 $('#zIn').onclick = () => zoomTo(zoomStep(1), stage.clientWidth / 2, stage.clientHeight / 2);
 $('#zOut').onclick = () => zoomTo(zoomStep(-1), stage.clientWidth / 2, stage.clientHeight / 2);
@@ -893,11 +992,13 @@ $$('.tab').forEach(t => t.onclick = () => {
   if (t.dataset.tab === 'preview') drawPreviews(); if (t.dataset.tab === 'saved') refreshList();
 });
 window.addEventListener('keydown', e => {
+  if (document.body.dataset.mode !== 'asm' && (e.ctrlKey || e.metaKey) && e.key === 'Enter') { $('#bSendPlace').click(); e.preventDefault(); return; }
   if (document.body.dataset.mode === 'asm' || e.target.matches('input')) return;
   const k = e.key.toLowerCase();
   if (e.code === 'Space') { spaceDown = true; cv.style.cursor = 'grab'; e.preventDefault(); return; }
   if ((e.ctrlKey || e.metaKey) && k === 'z') { e.shiftKey ? doRedo() : doUndo(); e.preventDefault(); return; }
   if ((e.ctrlKey || e.metaKey) && k === 'y') { doRedo(); e.preventDefault(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { $('#bSendPlace').click(); e.preventDefault(); return; }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   const m = { b: 'pencil', e: 'eraser', g: 'fill', i: 'picker', l: 'line', r: 'rect', o: 'ellipse', s: 'select', h: 'hand' };
   if (m[k]) setTool(m[k]);
@@ -1530,7 +1631,7 @@ function renderObj() {
   const pad = document.createElement('div'); pad.className = 'dpad';
   const mk = (t, dx, dy, area) => { const b = document.createElement('button'); b.className = 'btn'; b.textContent = t; b.setAttribute('aria-label', 'Déplacer'); b.style.gridArea = area; b.onclick = () => nudge(dx, dy); pad.appendChild(b); };
   mk('↑', 0, -1, '1 / 2'); mk('←', -1, 0, '2 / 1'); mk('→', 1, 0, '2 / 3'); mk('↓', 0, 1, '3 / 2');
-  const stepSel = document.createElement('select'); stepSel.setAttribute('aria-label', 'Pas'); stepSel.style.gridArea = '2 / 2'; stepSel.className = 'btn';
+  const stepSel = document.createElement('select'); stepSel.setAttribute('aria-label', 'Pas'); stepSel.style.gridArea = '2 / 2'; stepSel.className = 'btn'; stepSel.style.cssText += ';padding:4px 2px;font-size:12px;text-align:center;min-width:0';
   [1, 2, 4, 8, 16].forEach(n => { const op = document.createElement('option'); op.value = n; op.textContent = n + ' px'; if (n === nudgeStep) op.selected = true; stepSel.appendChild(op); });
   stepSel.onchange = () => { nudgeStep = +stepSel.value; }; pad.appendChild(stepSel);
   box.appendChild(pad);
@@ -1541,10 +1642,19 @@ function renderObj() {
   add('Remettre l\'ordre automatique', () => { if (os.some(q => q.z)) doStruct(() => os.forEach(q => { q.z = 0; })); });
   add('Grouper la sélection', groupSel);
   if (selUnits().some(u => u.k === 'g')) add('Dégrouper', ungroupSel);
+  add('Miroir horizontal', mirrorSel);
   add('Dupliquer', duplicateSel);
   if (o && modById.has(o.module)) add('Modifier ce module avec Dessiner', () => editModuleInDraw(o.module));
   add('Supprimer', delSel, 'del');
   box.appendChild(st);
+  if (selUnits().length >= 2) {
+    const h = document.createElement('h3'); h.textContent = 'Aligner'; h.style.marginTop = '12px'; box.appendChild(h);
+    const row = document.createElement('div'); row.className = 'row'; row.style.flexWrap = 'wrap';
+    [['⇤ Gauche', 'l'], ['↔ Centre', 'hc'], ['⇥ Droite', 'r'], ['⇡ Haut', 't'], ['↕ Milieu', 'vc'], ['⇣ Bas', 'b'], ['Répartir ↔', 'dh'], ['Répartir ↕', 'dv']].forEach(([t, m]) => {
+      const b = document.createElement('button'); b.className = 'btn small'; b.textContent = t; if ((m === 'dh' || m === 'dv') && selUnits().length < 3) { b.disabled = true; b.title = 'Il faut au moins 3 objets'; } b.onclick = () => alignSel(m); row.appendChild(b);
+    });
+    box.appendChild(row);
+  }
   box.appendChild(repeatSection(o, m));
   /* Redimensionner (entier seulement, pixels nets) : crée un NOUVEAU module, l'original n'est pas touché */
   if (m) {
@@ -1909,6 +2019,7 @@ const flushScene = () => {
   return DB.setKV('scene:' + A.id, sceneDoc()).then(async () => {
     let idx = (await DB.getKV('scenes')) || []; idx = idx.filter(x => x.id !== A.id); idx.unshift({ id: A.id, name: A.name, n: A.inst.length, ts: Date.now() });
     await DB.setKV('scenes', idx.slice(0, 60)); await DB.setKV('current', A.id);
+    const d = new Date(), pd = n => String(n).padStart(2, '0'), sv = $('#aSaved'); if (sv) sv.textContent = 'Enregistré à ' + pd(d.getHours()) + ':' + pd(d.getMinutes());
   }).catch(() => {});
 };
 function saveSoon() { clearTimeout(saveT); saveT = setTimeout(() => { flushScene(); autoVersion(); }, 250); }
@@ -2236,14 +2347,62 @@ $$('.modes button').forEach(b => b.onclick = () => setMode(b.dataset.mode));
 
 
 $('#aExport').onclick = () => showTab('scene');
-$('#bToMod').onclick = async () => {
+async function saveAsNewModule() {
   try {
-    const S = window.AP.S; if (!S.layers.some(L => L.vis && L.pix.some(v => v))) return toast("Le dessin est vide.");
-    const nm = ($('#name').value || 'sans-titre').trim().slice(0, 40) || 'sans-titre';
-    await addModule({ id: 'd_' + slugOf(nm), name: nm, category: 'dessins', w: S.w, h: S.h, px: S.w >> 1, py: S.h - 1, tags: [] }, await U().pngBlob(1));
-    toast('« ' + nm + ' » ajouté à tes modules (catégorie dessins)');
-  } catch (e) { toast("Impossible d'ajouter ce sprite aux modules."); }
+    const S = window.AP.S; if (!S.layers.some(L => L.vis && L.pix.some(v => v))) { toast("Le dessin est vide."); return null; }
+    const nm = ($('#name').value || 'sans-titre').trim().slice(0, 40) || 'sans-titre', id = 'd_' + slugOf(nm);
+    await addModule({ id, name: nm, category: 'dessins', w: S.w, h: S.h, px: S.w >> 1, py: S.h - 1, tags: [] }, await U().pngBlob(1));
+    toast('« ' + nm + ' » ajouté à tes modules (catégorie dessins)'); return id;
+  } catch (e) { toast("Impossible d'ajouter ce sprite aux modules."); return null; }
+}
+$('#bToMod').onclick = saveAsNewModule;
+$('#bSendPlace').onclick = async () => {
+  let id = null;
+  if (editingMod && modById.get(editingMod)) id = await updateEditedModule(); else id = await saveAsNewModule();
+  if (id) { setMode('asm'); chooseMod(id); toast('Touche la scène pour poser le module'); }
 };
+
+/* ---------- Miroir et alignement ---------- */
+async function mirrorModule(id) {
+  const m = modById.get(id); if (!m) return null;
+  const isMir = id.endsWith('_miroir'), mid = isMir ? id.slice(0, -7) : id.slice(0, 56) + '_miroir';
+  if (modById.has(mid)) return mid;
+  const blob = await DB.image(id); if (!blob) return null;
+  const bm = await createImageBitmap(blob), cv = document.createElement('canvas'); cv.width = bm.width; cv.height = bm.height;
+  const cx = cv.getContext('2d'); cx.translate(bm.width, 0); cx.scale(-1, 1); cx.drawImage(bm, 0, 0);
+  const out = await new Promise(r => cv.toBlob(r, 'image/png'));
+  await addModule({ id: mid, name: (m.name.replace(/ \(miroir\)$/, '') + (isMir ? '' : ' (miroir)')).slice(0, 80), category: m.category, w: m.w, h: m.h, px: m.w - m.px, py: m.py, tags: m.tags || [] }, out);
+  return mid;
+}
+async function mirrorSel() {
+  const os = selObjs(); if (!os.length) return;
+  try {
+    const map = {}; for (const id of new Set(os.map(q => q.module))) { const mid = await mirrorModule(id); if (!mid) return toast('Miroir impossible pour un module.'); map[id] = mid; }
+    doStruct(() => os.forEach(q => { q.module = map[q.module]; })); toast('Retourné de gauche à droite');
+  } catch (e) { toast('Miroir impossible.'); }
+}
+function alignSel(mode) {
+  const us = [];
+  for (const u of selUnits()) {
+    let bx = null; const ids = leavesOf(u);
+    for (const id of ids) { const o = A.inst.find(q => q.id === id), m = o && modById.get(o.module); if (!m) continue; const l = o.x - m.px, t = o.y - m.py, r = l + m.w, b = t + m.h; bx = bx ? { l: Math.min(bx.l, l), t: Math.min(bx.t, t), r: Math.max(bx.r, r), b: Math.max(bx.b, b) } : { l, t, r, b }; }
+    if (bx) us.push({ ids, ...bx });
+  }
+  if (us.length < 2) return;
+  const L = Math.min(...us.map(u => u.l)), R = Math.max(...us.map(u => u.r)), T = Math.min(...us.map(u => u.t)), B = Math.max(...us.map(u => u.b));
+  const sh = new Map(us.map(u => [u, [0, 0]]));
+  if (mode === 'l') us.forEach(u => sh.get(u)[0] = L - u.l); else if (mode === 'r') us.forEach(u => sh.get(u)[0] = R - u.r);
+  else if (mode === 'hc') us.forEach(u => sh.get(u)[0] = Math.round((L + R) / 2 - (u.l + u.r) / 2));
+  else if (mode === 't') us.forEach(u => sh.get(u)[1] = T - u.t); else if (mode === 'b') us.forEach(u => sh.get(u)[1] = B - u.b);
+  else if (mode === 'vc') us.forEach(u => sh.get(u)[1] = Math.round((T + B) / 2 - (u.t + u.b) / 2));
+  else if (mode === 'dh' || mode === 'dv') {
+    const h = mode === 'dh', a = h ? 'l' : 't', z = h ? 'r' : 'b', sorted = [...us].sort((p, q) => (p[a] + p[z]) - (q[a] + q[z]));
+    const span = sorted[sorted.length - 1][z] - sorted[0][a], total = sorted.reduce((n, u) => n + (u[z] - u[a]), 0), gap = (span - total) / (sorted.length - 1);
+    let pos = sorted[0][a]; for (const u of sorted) { sh.get(u)[h ? 0 : 1] = Math.round(pos) - u[a]; pos += (u[z] - u[a]) + gap; }
+  }
+  if (![...sh.values()].some(v => v[0] || v[1])) return toast('Déjà aligné.');
+  doStruct(() => { for (const u of us) { const [dx, dy] = sh.get(u); for (const id of u.ids) { const o = A.inst.find(q => q.id === id); if (o) { o.x += dx; o.y += dy; } } } });
+}
 
 /* ---------- Couleurs du kit : les plus utilisées dans les modules ---------- */
 async function kitColors() {
@@ -2280,17 +2439,18 @@ async function editModuleInDraw(id) {
   toast('Modifie le dessin, puis touche « Mettre à jour » en haut');
 }
 $('#bModCancel').onclick = () => { editingMod = null; updateEditBar(); toast('Modification abandonnée (le module n\'a pas changé).'); };
-$('#bModSave').onclick = async () => {
-  const m = editingMod && modById.get(editingMod); if (!m) { editingMod = null; updateEditBar(); return toast('Module introuvable.'); }
-  const S = window.AP.S; if (!S.layers.some(L => L.vis && L.pix.some(v => v))) return toast('Le dessin est vide.');
-  if (!(await confirmBox('Mettre à jour le module', 'L\'image de « ' + m.name + ' » sera remplacée par le dessin actuel, partout où il est posé dans tes scènes.', 'Mettre à jour'))) return;
+async function updateEditedModule() {
+  const m = editingMod && modById.get(editingMod); if (!m) { editingMod = null; updateEditBar(); toast('Module introuvable.'); return null; }
+  const S = window.AP.S; if (!S.layers.some(L => L.vis && L.pix.some(v => v))) { toast('Le dessin est vide.'); return null; }
+  if (!(await confirmBox('Mettre à jour le module', 'L\'image de « ' + m.name + ' » sera remplacée par le dessin actuel, partout où il est posé dans tes scènes.', 'Mettre à jour'))) return null;
   try {
     const w = S.w, h = S.h, same = w === m.w && h === m.h;
     const px = same ? m.px : Math.max(0, Math.min(w, Math.round(m.px * w / m.w))), py = same ? m.py : Math.max(0, Math.min(h, Math.round(m.py * h / m.h)));
     await addModule({ ...m, w, h, px, py }, await U().pngBlob(1));
-    toast('Module « ' + m.name + ' » mis à jour'); editingMod = null; updateEditBar(); redraw();
-  } catch (e) { toast('Mise à jour impossible.'); }
-};
+    const mid = m.id; toast('Module « ' + m.name + ' » mis à jour'); editingMod = null; updateEditBar(); redraw(); return mid;
+  } catch (e) { toast('Mise à jour impossible.'); return null; }
+}
+$('#bModSave').onclick = updateEditedModule;
 $('#bNew').addEventListener('click', () => { if (editingMod) { editingMod = null; updateEditBar(); } });
 $('#bOpen').addEventListener('click', () => { if (editingMod) { editingMod = null; updateEditBar(); } });
 

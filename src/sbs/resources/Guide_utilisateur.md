@@ -120,6 +120,13 @@ Confort de l'édition web :
 - **Masquer un module** : le bouton ⊘ d'une vignette (ou « Masquer » dans la barre du module choisi) le retire de la liste sans le supprimer ; il reste dans tes scènes. L'onglet « Masqués » permet de le démasquer (↺).
 - **Modifier un module avec Dessiner** : « Modifier avec Dessiner » (barre du module choisi, ou onglet Objet) ouvre l'image dans Dessiner (128×128 maximum). Puis « Mettre à jour le module » remplace l'image partout où elle est posée ; « → Mes modules » en crée au contraire une copie. Le point d'appui est conservé.
 - **Palette de Dessiner** : trois palettes au choix (elfvsorc, couleurs du kit tirées des modules, base du PC), une rangée « Récentes », la saisie d'un code (#rrggbb) et « Retirer des couleurs » pour nettoyer « Mes couleurs ».
+- **Remplacer une couleur** : dans Dessiner, onglet Couleurs → « Remplacer une couleur » : touche la couleur à changer sur le dessin, puis « Remplacer par la couleur actuelle » (sur le calque actif, ou tous les calques). Sur le PC : outil « Remplacer couleur » (R), choisis d'abord la nouvelle couleur, puis clique un pixel de l'ancienne.
+- **Nuances** : sous la palette, 7 nuances de la couleur choisie (ombres vers le bleu, lumières vers le jaune).
+- **Tablette graphique** : boutons « Lissage » (adoucit les tremblements) et « Pixel parfait » (supprime les coins en double) ; le bout gomme du stylet efface. Pixel parfait agit sur le pinceau de 1 pixel, sans miroir.
+- **Recadrer au contenu** (onglet Calques) réduit la toile à la zone dessinée ; « Annuler le recadrage » le défait.
+- **Poser dans la scène** (Ctrl+Entrée dans Dessiner) : ajoute le sprite aux modules (ou met à jour celui qu'on modifie) et passe à la scène avec ce module prêt à poser.
+- **Miroir horizontal** et **Aligner** (gauche, centre, droite, haut, milieu, bas, répartir) dans l'onglet Objet. Le miroir crée un module « … (miroir) » réutilisé ensuite.
+- **Aide** : la touche ? (ou le bouton ?) affiche tous les raccourcis. « Enregistré à HH:MM » indique la dernière sauvegarde de la scène.
 - **Téléphone** : le bouton « Panneau » replie le panneau pour voir toute la scène ; les boutons sont plus grands au doigt.
 
 Limites : le paquet scène ne transporte que les modules, les positions, les étages, les groupes et les animations (pas de variantes ni de cartes de normales) ; vider les données du navigateur efface modules et scènes, d'où l'intérêt de la sauvegarde complète.
