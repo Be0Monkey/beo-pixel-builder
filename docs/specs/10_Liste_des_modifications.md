@@ -9,14 +9,14 @@ Légende : ☐ à faire · ☑ fait · Taille : S (rapide), M (une séance), L (
 |---|-------|----|--------|------|
 | 1 | Remplacer une couleur par une autre dans tout le sprite | Dessiner (web ✔, PC ✔) | S | ☑ |
 | 2 | Rampes de couleurs : nuances plus sombre / plus claire d'une couleur choisie | Dessiner (web) | S | ☑ |
-| 3 | Miroir horizontal d'un objet + alignement automatique (aligner, centrer, répartir) | Assembler (web ✔, PC à faire) | M | ☑ web |
-| 4 | Regénérer le zip Windows + publier une release GitHub | PC / diffusion | S | ☐ |
+| 3 | Miroir horizontal d'un objet + alignement automatique (aligner, centrer, répartir) | Assembler (web ✔, PC ✔) | M | ☑ web + PC |
+| 4 | Regénérer le zip Windows (fait, 8 nov.) + publier une release GitHub (à faire à la main : ni moi ni le PC n'avons d'accès `gh`) | PC / diffusion | S | ½ |
 
 ## Priorité réelle : proches sur PC + tablette graphique sans écran (8 nov.)
 
 Contexte : pas encore testé par des proches. Public visé = PC, tablette sans écran (on regarde l'écran, on dessine sur la tablette). Parcours : dessiner des sprites, puis les assembler.
 
-- ☐ Installation sans accroc : zip à jour, notice d'une page, parcours complet vérifié par nous (étape 4 passe en premier).
+- ☐ Installation sans accroc : zip à jour (☑), notice d'une page, parcours complet vérifié par nous (étape 4 passe en premier).
 - ☑ (existait déjà : pixel survolé surligné) Curseur bien visible sur le canvas : pixel survolé surligné + aperçu du pinceau, car sans écran sur la tablette on ne voit pas où est le stylet.
 - ☑ Tracé : lissage du trait (stabilisateur), mode « pixel parfait » (pas de coins doublés), ligne droite avec Maj.
 - ☑ Gomme : bout gomme du stylet reconnu comme gomme (existait déjà dans la version web).

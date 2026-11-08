@@ -157,3 +157,49 @@ def test_create_wall_piece_reutilise(tmp_path):
         RZ.create_wall_piece(lib, "inconnu", 8, 1.0, 0.5, 0)
 
 
+
+
+# ------------------------------------------------------------------ miroir et alignement
+def test_miroir_retourne_image_pivot_ancrages_et_se_reutilise(tmp_path):
+    lib, a, im = make_asset(tmp_path)
+    lib.update_geometry(a.uuid, (1, 5), [Anchor("main", 3, 2)], revision=a.revision)
+    lib.set_tags(a.uuid, ["pierre"])
+    m, created = RZ.create_mirrored(lib, a.uuid)
+    assert created and m.name == "mur (miroir)" and list(m.tags) == ["pierre"]
+    out = Image.open(io.BytesIO(lib.image_bytes(m.uuid))).convert("RGBA")
+    assert out.getpixel((0, 1)) == im.getpixel((3, 1)) and out.getpixel((3, 4)) == im.getpixel((0, 4))
+    assert (m.pivot_x, m.pivot_y) == (3, 5)  # 4 - 1
+    assert [(x.x, x.y) for x in m.anchors] == [(1, 2)]  # 4 - 3
+    again, created2 = RZ.create_mirrored(lib, a.uuid)
+    assert not created2 and again.uuid == m.uuid  # rien de dupliqué
+    back, created3 = RZ.create_mirrored(lib, m.uuid)
+    assert back.uuid == a.uuid and not created3 and back.name == "mur"  # le miroir du miroir est l'original
+
+
+def test_miroir_module_inconnu(tmp_path):
+    lib, a, _ = make_asset(tmp_path)
+    with pytest.raises(ValueError):
+        RZ.create_mirrored(lib, "inconnu")
+
+
+def test_alignement_calcul():
+    from sbs.domain.align import align_shifts
+    boxes = [(0, 0, 10, 10), (20, 5, 24, 9), (40, 2, 50, 20)]
+    assert align_shifts(boxes, "left") == [(0, 0), (-20, 0), (-40, 0)]
+    assert align_shifts(boxes, "right") == [(40, 0), (26, 0), (0, 0)]
+    assert align_shifts(boxes, "top") == [(0, 0), (0, -5), (0, -2)]
+    assert align_shifts(boxes, "bottom") == [(0, 10), (0, 11), (0, 0)]
+    assert align_shifts(boxes, "hcenter") == [(20, 0), (3, 0), (-20, 0)]  # centre commun : 25
+
+
+def test_alignement_repartition_et_refus():
+    from sbs.domain.align import align_shifts
+    boxes = [(0, 0, 10, 10), (12, 0, 22, 10), (90, 0, 100, 10)]
+    sh = align_shifts(boxes, "dist_h")  # espaces égaux : 100 - 30 = 70 / 2 = 35
+    assert [b[0] + d[0] for b, d in zip(boxes, sh)] == [0, 45, 90]
+    with pytest.raises(ValueError):
+        align_shifts(boxes[:1], "left")
+    with pytest.raises(ValueError):
+        align_shifts(boxes[:2], "dist_h")
+    with pytest.raises(ValueError):
+        align_shifts(boxes, "nimporte")

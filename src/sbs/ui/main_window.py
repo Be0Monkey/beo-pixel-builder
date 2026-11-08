@@ -182,6 +182,14 @@ class MainWindow(SessionMixin, QMainWindow):
         edit_menu.addAction(QAction("&Modifier les pixels…", self, shortcut="F6",
                                     triggered=self.edit_pixels))
         edit_menu.addAction(QAction("Re&dimensionner…", self, shortcut="F5", triggered=self.open_resize))
+        edit_menu.addAction(QAction("Retourner (mi&roir horizontal)", self, shortcut="Ctrl+M",
+                                    triggered=self.mirror_selection))
+        align_menu = edit_menu.addMenu("Ali&gner")
+        for label, mode in (("À gauche", "left"), ("Centrer horizontalement", "hcenter"),
+                            ("À droite", "right"), ("En haut", "top"),
+                            ("Centrer verticalement", "vcenter"), ("En bas", "bottom"),
+                            ("Répartir horizontalement", "dist_h"), ("Répartir verticalement", "dist_v")):
+            align_menu.addAction(QAction(label, self, triggered=lambda _=False, m=mode: self.align_selection(m)))
         edit_menu.addAction(QAction("&Propriétés du module…", self, shortcut="F4",
                                     triggered=self.edit_module_properties))
         self.variant_menu = edit_menu.addMenu("&Variante")
@@ -609,6 +617,20 @@ class MainWindow(SessionMixin, QMainWindow):
             self.library_panel.refresh()
             self.statusBar().showMessage(dlg.result_text, 6000)
         return True
+
+    def mirror_selection(self) -> None:
+        try:
+            n, created = self.canvas_scene.mirror_selected()
+        except ValueError as exc:
+            self.statusBar().showMessage(str(exc), 6000)
+            return
+        self.library_panel.reload_categories()
+        self.library_panel.refresh()
+        self.statusBar().showMessage(f"{n} objet(s) retourné(s) ({created} nouveau(x) module(s)).", 6000)
+
+    def align_selection(self, mode: str) -> None:
+        msg = self.canvas_scene.align_selected(mode)
+        self.statusBar().showMessage(msg or "Aligné.", 5000)
 
     def open_animations(self) -> None:
         AnimationDialog(self.canvas_scene, self.library_panel.current_asset_uuid, self).exec()

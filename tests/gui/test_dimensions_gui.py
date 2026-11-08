@@ -148,3 +148,34 @@ def test_dialogue_mur_perspective(win):
     assert "6 objet(s)" in dlg.info.text() and "100 % à 40 %" in dlg.info.text()
     assert dlg.place() is None and len(win.scene_model) == 6
     dlg.close()
+
+
+def test_miroir_de_la_selection_puis_annuler(win):
+    sc, lib = win.canvas_scene, win.library
+    a, b = lib.list_assets()
+    i1, i2 = sc.add_asset(a.uuid, 10, 20), sc.add_asset(b.uuid, 50, 20)
+    sc.select_ids([i1.id, i2.id])
+    n, created = sc.mirror_selected()
+    assert (n, created) == (2, 1)  # les deux modules du kit ont la même image : un seul miroir
+    m1 = win.scene_model.get(i1.id).asset_uuid
+    assert m1 != a.uuid and lib.get(m1).name.endswith("(miroir)")
+    win.canvas_scene.undo()
+    assert win.scene_model.get(i1.id).asset_uuid == a.uuid
+    sc.select_ids([])
+    with pytest.raises(ValueError):
+        sc.mirror_selected()
+
+
+def test_aligner_la_selection_en_une_action(win):
+    sc, lib = win.canvas_scene, win.library
+    a = lib.list_assets()[0]
+    i1, i2, i3 = sc.add_asset(a.uuid, 10, 20), sc.add_asset(a.uuid, 60, 50), sc.add_asset(a.uuid, 120, 35)
+    sc.select_ids([i1.id, i2.id, i3.id])
+    assert sc.align_selected("bottom") is None
+    ys = {win.scene_model.get(i.id).y for i in (i1, i2, i3)}
+    assert ys == {50}  # tous les modules ont la même taille : le bas commun est celui du plus bas
+    assert sc.align_selected("bottom") == "Déjà aligné."
+    sc.undo()
+    assert win.scene_model.get(i1.id).y == 20
+    sc.select_ids([i1.id])
+    assert "au moins deux" in sc.align_selected("left")

@@ -1,6 +1,7 @@
 """Scène graphique : reflète le SceneModel. Toute modification du document passe par une commande
 (annulable) exécutée par l'historique ; la scène se resynchronise sur le modèle."""
 
+import math
 from collections.abc import Callable
 
 from PySide6.QtCore import QPointF, QRectF, Qt
@@ -25,6 +26,7 @@ from sbs.commands.structure import (
     SetStructure,
 )
 from sbs.domain import groups as G
+from sbs.domain.align import align_shifts
 from sbs.domain.ids import new_id
 from sbs.domain.repeat import MAX_COUNT
 from sbs.domain.scene import Group, Instance, SceneModel, validate_grouping
@@ -367,6 +369,58 @@ class CanvasScene(QGraphicsScene):
         changes = {i.id: ((i.asset_uuid, i.variant), (created[i.asset_uuid], None)) for i in sel}
         self.history.execute(SwapAssets(changes, f"Redimensionner {RZ.label(mode, k)}"))
         return len(sel), len(created)
+
+    def mirror_selected(self) -> tuple[int, int]:
+        """Retourne de gauche à droite les objets sélectionnés (nouveau module miroir, pivot retourné).
+        Une seule action annulable. Renvoie (objets changés, modules créés). Lève ValueError."""
+        sel = self.selection_in_model_order()
+        if not sel:
+            raise ValueError("Sélectionne d'abord un ou plusieurs objets.")
+        made: dict[str, str] = {}
+        created: list[str] = []
+        try:
+            for inst in sel:
+                if inst.asset_uuid not in made:
+                    m, new = RZ.create_mirrored(self.library, inst.asset_uuid)
+                    made[inst.asset_uuid] = m.uuid
+                    if new:
+                        created.append(m.uuid)
+        except ValueError:
+            for uuid in created:
+                self.library.delete_asset(uuid)
+            raise
+        changes = {i.id: ((i.asset_uuid, i.variant), (made[i.asset_uuid], None)) for i in sel}
+        self.history.execute(SwapAssets(changes, "Miroir horizontal"))
+        return len(sel), len(created)
+
+    def align_selected(self, mode: str) -> str | None:
+        """Aligne ou répartit les objets/groupes sélectionnés. None si fait, sinon un message d'erreur."""
+        units = self.selected_units()
+        boxes, members = [], []
+        for u in units:
+            rect = None
+            ids = [i for i in G.leaves(self.model, u) if i in self.items_by_id]
+            for inst_id in ids:
+                r = self.items_by_id[inst_id].sceneBoundingRect()
+                rect = r if rect is None else rect.united(r)
+            if rect is not None:
+                # arrondi « demi vers le haut » (round() de Python arrondit .5 au pair : deux objets identiques
+                # pourraient alors différer d'un pixel)
+                boxes.append(tuple(math.floor(v + 0.5) for v in
+                                   (rect.left(), rect.top(), rect.right(), rect.bottom())))
+                members.append(ids)
+        try:
+            shifts = align_shifts(boxes, mode)
+        except ValueError as exc:
+            return str(exc)
+        if not any(dx or dy for dx, dy in shifts):
+            return "Déjà aligné."
+        for ids, (dx, dy) in zip(members, shifts):
+            for inst_id in ids:
+                item = self.items_by_id[inst_id]
+                item.setPos(item.pos().x() + dx, item.pos().y() + dy)
+        self.commit_positions()
+        return None
 
     def place_wall(self, asset_uuid: str, pieces, group: bool = False) -> str | None:
         """Pose un mur en perspective (voir domain.repeat.perspective_wall) en une seule action annulable.

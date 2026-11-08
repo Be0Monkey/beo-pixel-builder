@@ -148,3 +148,46 @@ def create_wall_piece(library: Library, asset_uuid: str, width: int, s_left: flo
         return library.get(new.uuid), True
     except (LibraryError, ValueError) as exc:
         raise ValueError(str(exc)) from exc
+
+
+def create_mirrored(library: Library, asset_uuid: str):
+    """Module retourné de gauche à droite (miroir horizontal). Le point d'appui et les ancrages sont retournés
+    aussi. Réutilise un module identique déjà présent (le miroir d'un miroir redonne l'original).
+    Les variantes et cartes de relief ne sont pas reprises. Renvoie (module, créé?). Lève ValueError."""
+    import hashlib
+
+    from PIL import ImageOps
+
+    from sbs.services.batch_import import find_local_by_sha
+    asset = library.get(asset_uuid)
+    if asset is None:
+        raise ValueError("ce module est absent de la bibliothèque")
+    try:
+        src = Image.open(io.BytesIO(library.image_bytes(asset_uuid)))
+        src.load()
+    except (OSError, LibraryError, ValueError) as exc:
+        raise ValueError(f"image du module illisible : {exc}") from exc
+    img = ImageOps.mirror(src.convert("RGBA"))
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    png = buf.getvalue()
+    pivot = (asset.width - asset.pivot_x, asset.pivot_y)
+    existing = find_local_by_sha(library, hashlib.sha256(png).hexdigest())
+    if existing is not None:
+        found = library.get(existing)
+        if found is not None and (found.pivot_x, found.pivot_y) == pivot:
+            return found, False
+    name = asset.name[:-9] if asset.name.endswith(" (miroir)") else f"{asset.name} (miroir)"
+    new = None
+    try:
+        new = library.create_asset(name, png, pivot, asset.category)
+        if asset.anchors:
+            anchors = [Anchor(a.name, asset.width - a.x, a.y) for a in asset.anchors]
+            new = library.update_geometry(new.uuid, pivot, anchors, revision=1)
+        if asset.tags:
+            library.set_tags(new.uuid, asset.tags)
+        return library.get(new.uuid), True
+    except (LibraryError, ValueError) as exc:
+        if new is not None:
+            library.delete_asset(new.uuid)
+        raise ValueError(str(exc)) from exc

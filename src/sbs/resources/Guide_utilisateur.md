@@ -130,3 +130,7 @@ Confort de l'édition web :
 - **Téléphone** : le bouton « Panneau » replie le panneau pour voir toute la scène ; les boutons sont plus grands au doigt.
 
 Limites : le paquet scène ne transporte que les modules, les positions, les étages, les groupes et les animations (pas de variantes ni de cartes de normales) ; vider les données du navigateur efface modules et scènes, d'où l'intérêt de la sauvegarde complète.
+
+## Sur PC : retourner et aligner
+
+Menu **Édition** : **Retourner (miroir horizontal)** (Ctrl+M) crée un module « … (miroir) » (le point d'appui et les ancrages sont retournés aussi ; les variantes ne sont pas reprises) et l'applique aux objets sélectionnés. **Aligner** range les objets ou groupes sélectionnés : à gauche, au centre, à droite, en haut, au milieu, en bas, ou répartis à égale distance (au moins trois). Tout s'annule d'un seul Ctrl+Z.
