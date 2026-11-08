@@ -1,6 +1,6 @@
 # Sprite Builder Studio
 
-Application Windows 11 locale (Python + PySide6), **sans IA**, pour assembler à la main des sprites 2D en vue 3/4,
+Application Windows 11 locale (Python + PySide6), pour assembler à la main des sprites 2D en vue 3/4,
 comme avec des briques : bibliothèque (kit Blender ou images à toi), assemblage au pixel près, étages/calques/groupes,
 retouche pixel, animations, répétitions, aperçu éclairé (simulation), export PNG / Godot 4 / JSON.
 
